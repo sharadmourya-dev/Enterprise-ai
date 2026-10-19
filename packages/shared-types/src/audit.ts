@@ -8,6 +8,7 @@ export enum AuditAction {
   DOC_DELETE = 'document.delete',
   DOC_REINDEX = 'document.reindex',
   DOC_ACL_UPDATE = 'document.acl_update',
+  RAG_QUERY = 'rag.query',
   CHAT_QUERY = 'chat.query',
   ADMIN_ROLE_CHANGE = 'admin.user_role_change',
   ADMIN_CLEARANCE_CHANGE = 'admin.user_clearance_change',
@@ -25,6 +26,8 @@ export enum AuditResourceType {
 
 export interface IAuditLog {
   id: string;
+  sequenceNumber: number;
+  previousHash: string;
   userId?: string | null;
   action: AuditAction;
   resourceType: AuditResourceType;

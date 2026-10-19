@@ -28,7 +28,7 @@ export interface ICreateFeedbackRequest {
   conversationId: string;
   messageId: string;
   rating: FeedbackRating;
-  category: FeedbackCategory;
+  category?: FeedbackCategory;
   userComment?: string;
 }
 
@@ -55,14 +55,113 @@ export interface IRagEvaluationRecord {
 }
 
 export interface IAnalyticsOverview {
-  totalQueries: number;
-  totalTokensConsumed: number;
-  averageLatencyMs: number;
-  p95LatencyMs: number;
-  cacheHitRatePercentage: number;
-  feedbackDistribution: {
+  userMetrics: {
+    totalUsers: number;
+    activeUsers: number;
+    byRole: Record<string, number>;
+    byClearance: Record<string, number>;
+  };
+  documentMetrics: {
+    totalDocuments: number;
+    readyDocuments: number;
+    failedDocuments: number;
+    processingDocuments: number;
+    totalChunks: number;
+    totalFileSizeBytes: number;
+  };
+  conversationMetrics: {
+    totalConversations: number;
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+  };
+  queryMetrics: {
+    totalQueries: number;
+    successQueries: number;
+    filteredEmptyQueries: number;
+    errorQueries: number;
+    totalTokensConsumed: number;
+    averageLatencyMs: number;
+    p95LatencyMs: number;
+    cacheHitRatePercentage: number;
+  };
+  feedbackMetrics: {
+    totalFeedback: number;
     thumbsUp: number;
     thumbsDown: number;
     positivePercentage: number;
+    categoryBreakdown: Record<string, number>;
   };
+}
+
+export interface IAnalyticsDailyTrend {
+  date: string; // YYYY-MM-DD
+  queryCount: number;
+  successCount: number;
+  errorCount: number;
+  totalTokens: number;
+  avgLatencyMs: number;
+  activeConversations: number;
+}
+
+export interface IAnalyticsIngestionStats {
+  totalDocuments: number;
+  byStatus: Record<string, number>;
+  totalChunks: number;
+  totalFileSizeBytes: number;
+  avgChunksPerDoc: number;
+  failedCount: number;
+  failureRatePercentage: number;
+  recentFailures: Array<{
+    documentId: string;
+    title: string;
+    filename: string;
+    errorMessage: string;
+    failedAt: string;
+  }>;
+}
+
+export interface IEvaluationDatasetCase {
+  id: string;
+  query: string;
+  category: 'grounded' | 'unauthorized_clearance' | 'unauthorized_role' | 'unauthorized_department' | 'abstention_no_docs' | 'edge_case';
+  userRole?: string;
+  userDepartment?: string;
+  userClearance?: string;
+  expectedRelevantChunkIds?: string[];
+  expectedDocIds?: string[];
+  expectedBehavior: 'answer' | 'abstain';
+  expectedDisclaimerRegex?: string;
+  groundTruthAnswer?: string;
+}
+
+export interface IEvaluationRunSummary {
+  runId: string;
+  timestamp: string;
+  totalCases: number;
+  passedCases: number;
+  passRatePercentage: number;
+  metrics: {
+    avgRecallAtK: number;
+    avgPrecisionAtK: number;
+    citationValidityRate: number;
+    citationCoverageRate: number;
+    abstentionAccuracyRate: number;
+    authorizationViolationCount: number;
+    avgLatencyMs: number;
+  };
+  cases: Array<{
+    id: string;
+    passed: boolean;
+    expectedBehavior: 'answer' | 'abstain';
+    didAbstain: boolean;
+    recallAtK: number;
+    precisionAtK: number;
+    citationValidity: number;
+    citationCoverage: number;
+    abstainedAsExpected: boolean;
+    authorizationViolated: boolean;
+    latencyMs: number;
+    notes?: string;
+  }>;
 }

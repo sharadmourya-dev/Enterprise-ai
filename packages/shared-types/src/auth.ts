@@ -91,3 +91,17 @@ export interface ILoginRequest {
 export interface IRefreshTokenRequest {
   refreshToken: string;
 }
+
+export interface ISession {
+  id: string;
+  sessionId: string;
+  userId: string;
+  userAgent?: string;
+  ipAddress?: string;
+  isRevoked: boolean;
+  revokedReason?: string;
+  tokenVersion: number;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}

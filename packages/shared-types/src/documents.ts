@@ -9,10 +9,42 @@ export enum DocumentMimeType {
 
 export enum DocumentStatus {
   PENDING = 'pending',
+  UPLOADED = 'uploaded',
+  QUEUED = 'queued',
   PROCESSING = 'processing',
-  INDEXED = 'indexed',
+  INDEXING = 'indexing',
+  READY = 'ready',
+  INDEXED = 'indexed', // Kept for backwards compatibility
   FAILED = 'failed',
+  DELETING = 'deleting',
   ARCHIVED = 'archived',
+}
+
+export interface IDocumentUploadResponse {
+  documentId: string;
+  title: string;
+  originalFilename: string;
+  mimeType: DocumentMimeType;
+  fileSizeBytes: number;
+  fileHash: string;
+  status: DocumentStatus;
+  jobId?: string;
+  createdAt: string;
+}
+
+export interface IDocumentListQuery {
+  page?: number;
+  limit?: number;
+  status?: DocumentStatus;
+  department?: string;
+}
+
+export interface IDocumentListResponse {
+  documents: IDocument[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 /**
@@ -41,6 +73,8 @@ export interface IDocument {
   errorMessage?: string | null;
   chunkCount: number;
   tokenCount: number;
+  currentRevision: number;
+  stagedRevision?: number | null;
   uploadedBy: string;
   accessControl: IAccessControl;
   metadata?: Record<string, string>;
@@ -60,6 +94,7 @@ export interface IDocumentChunk {
   id: string;
   documentId: string;
   chunkIndex: number;
+  revision: number;
   content: string;
   tokenCount: number;
   vectorId: string;
@@ -74,6 +109,7 @@ export interface IDocumentChunk {
 export interface IQdrantChunkPayload {
   chunk_id: string;
   document_id: string;
+  revision: number;
   title: string;
   page_number?: number;
   char_start?: number;

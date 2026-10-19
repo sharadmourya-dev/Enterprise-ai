@@ -1,51 +1,66 @@
+# Environment files and secrets (strictly excluded)
+.env
+.env.*
+*.env
+!.env.example
+!.env.sample
+
 # Dependencies
 node_modules/
 .pnp/
 .pnp.js
-
-# Environment variables (strictly excluded)
-.env
-.env.local
-.env.development
-.env.test
-.env.production
-*.env
-!*.env.example
-!.env.example
 
 # Build outputs
 dist/
 build/
 .next/
 out/
+coverage/
 *.tsbuildinfo
 
-# Persistent data volumes (local docker data mounts)
+# Persistent data volumes, local uploads, and databases
 infrastructure/data/
-data/
+apps/backend/data/
+/data/
 *.db
 *.sqlite
+
+# Keep synthetic evaluation dataset
+!apps/backend/src/evaluation/data/
+!apps/backend/src/evaluation/data/**
 
 # Testing & coverage
 coverage/
 *.lcov
 .nyc_output/
 
-# Logs
+# Logs and runtime artifacts
 logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.pid
+*.seed
+*.pid.lock
 
-# IDE & OS files
+# Local caches and temporary files
+.cache/
+.tmp/
+temp/
+tmp/
+
+# Local environment and operating-system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor-specific state
 .idea/
 .vscode/
 *.swp
 *.swo
-.DS_Store
-Thumbs.db
 
 # Secrets and keys
 *.pem
