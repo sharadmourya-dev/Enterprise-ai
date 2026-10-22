@@ -15,6 +15,28 @@ export const KNOWN_INSECURE_SECRETS = [
   'replace_with_strong_256_bit_random_secret_for_audit_logs',
 ];
 
+/**
+ * Strict boolean parser that correctly interprets boolean representations from environment strings:
+ * - "true", "1" -> true
+ * - "false", "0" -> false
+ * - undefined / empty string -> default value
+ * Rejects unsupported strings with a clear validation error.
+ */
+export const booleanEnv = (defaultValue: boolean) =>
+  z
+    .preprocess((val) => {
+      if (val === undefined || val === '') return defaultValue;
+      if (typeof val === 'boolean') return val;
+      if (typeof val === 'string') {
+        const normalized = val.trim().toLowerCase();
+        if (normalized === 'true' || normalized === '1') return true;
+        if (normalized === 'false' || normalized === '0') return false;
+        return val;
+      }
+      return val;
+    }, z.boolean({ invalid_type_error: 'Must be a valid boolean representation ("true", "false", "1", "0")' }))
+    .default(defaultValue);
+
 export const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -30,10 +52,13 @@ export const envSchema = z
     // Redis
     REDIS_HOST: z.string().default('localhost'),
     REDIS_PORT: z.coerce.number().default(6379),
+    REDIS_USERNAME: z.string().optional().default('default'),
     REDIS_PASSWORD: z.string().optional().default(''),
+    REDIS_TLS: booleanEnv(false),
 
     // Qdrant
     QDRANT_URL: z.string().default('http://localhost:6333'),
+    QDRANT_TEST_URL: z.string().default('http://localhost:6333'),
     QDRANT_API_KEY: z.string().optional().default(''),
     QDRANT_COLLECTION_NAME: z.string().default('enterprise_knowledge_chunks'),
 
@@ -61,17 +86,25 @@ export const envSchema = z
     MAX_FILE_SIZE_BYTES: z.coerce.number().default(52428800),
     UPLOAD_STORAGE_PATH: z.string().default('./data/uploads'),
 
+    // Storage Driver & Cloudinary
+    STORAGE_DRIVER: z.enum(['local', 'cloudinary']).default('local'),
+    CLOUDINARY_CLOUD_NAME: z.string().optional().default(''),
+    CLOUDINARY_API_KEY: z.string().optional().default(''),
+    CLOUDINARY_API_SECRET: z.string().optional().default(''),
+    CLOUDINARY_FOLDER: z.string().default('enterprise-ai/documents'),
+    MAX_CLOUDINARY_FILE_SIZE_BYTES: z.coerce.number().default(10485760), // 10 MB default for Cloudinary free plan
+
     // Conversation & Multi-Turn
     CONVERSATION_HISTORY_LIMIT: z.coerce.number().min(1).max(50).default(10),
     CONVERSATION_MESSAGE_MAX_CHARS: z.coerce.number().min(10).max(20000).default(4000),
 
     // Redis Cache
-    RAG_CACHE_ENABLED: z.coerce.boolean().default(true),
+    RAG_CACHE_ENABLED: booleanEnv(true),
     RAG_CACHE_TTL_SECONDS: z.coerce.number().min(10).max(604800).default(3600),
     RAG_CACHE_MAX_PAYLOAD_BYTES: z.coerce.number().min(1024).max(5242880).default(131072), // 128KB default
 
     // Rate limiting
-    RATE_LIMIT_ENABLED: z.coerce.boolean().default(true),
+    RATE_LIMIT_ENABLED: booleanEnv(true),
     RATE_LIMIT_WINDOW_MS: z.coerce.number().min(1000).default(900000),
     RATE_LIMIT_MAX_REQUESTS: z.coerce.number().min(1).default(100),
     RATE_LIMIT_CHAT_WINDOW_MS: z.coerce.number().min(1000).default(60000), // 1 min window
@@ -135,6 +168,35 @@ export const envSchema = z
     checkSecret('JWT_ACCESS_SECRET', 'development_access_secret_min_32_characters_long_12345');
     checkSecret('JWT_REFRESH_SECRET', 'development_refresh_secret_min_32_characters_long_12345');
     checkSecret('AUDIT_LOG_HMAC_SECRET', 'development_hmac_secret_min_32_characters_long_12345');
+
+    // Conditional Cloudinary validation: only required when STORAGE_DRIVER is 'cloudinary'
+    if (data.STORAGE_DRIVER === 'cloudinary') {
+      const requiredCloudinaryFields: Array<'CLOUDINARY_CLOUD_NAME' | 'CLOUDINARY_API_KEY' | 'CLOUDINARY_API_SECRET'> = [
+        'CLOUDINARY_CLOUD_NAME',
+        'CLOUDINARY_API_KEY',
+        'CLOUDINARY_API_SECRET',
+      ];
+
+      for (const field of requiredCloudinaryFields) {
+        const val = data[field];
+        if (!val || val.trim().length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `FATAL CONFIGURATION ERROR: ${field} must be provided when STORAGE_DRIVER is 'cloudinary'.`,
+          });
+        } else if (
+          isProduction &&
+          (val.startsWith('your_cloudinary_') || val.startsWith('replace_with_'))
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `FATAL CONFIGURATION ERROR: ${field} cannot use template placeholder values in production.`,
+          });
+        }
+      }
+    }
   });
 
 export type EnvConfig = z.infer<typeof envSchema> & {

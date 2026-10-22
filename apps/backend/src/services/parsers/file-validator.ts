@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import path from 'path';
 import { DocumentMimeType } from '@enterprise-ai/shared-types';
-import { env } from '../../config/env.js';
+import { StorageService } from '../storage.service.js';
 import { BadRequestError } from '../../utils/errors.js';
 
 export interface IValidatedFile {
@@ -18,14 +18,20 @@ export class FileValidator {
   /**
    * Validates file size, extension, declared MIME type, and binary magic bytes.
    */
-  public static validate(buffer: Buffer, originalFilename: string, declaredMimeType?: string): IValidatedFile {
+  public static validate(
+    buffer: Buffer,
+    originalFilename: string,
+    declaredMimeType?: string,
+    customMaxSizeBytes?: number
+  ): IValidatedFile {
     if (!buffer || buffer.length === 0) {
       throw new BadRequestError('Uploaded file is empty or corrupted (0 bytes)');
     }
 
-    if (buffer.length > env.MAX_FILE_SIZE_BYTES) {
+    const effectiveLimit = customMaxSizeBytes ?? StorageService.getMaxUploadSizeBytes();
+    if (buffer.length > effectiveLimit) {
       throw new BadRequestError(
-        `File size (${(buffer.length / 1024 / 1024).toFixed(2)} MB) exceeds maximum allowed limit of ${(env.MAX_FILE_SIZE_BYTES / 1024 / 1024).toFixed(2)} MB`
+        `File size (${(buffer.length / 1024 / 1024).toFixed(2)} MB) exceeds maximum allowed limit of ${(effectiveLimit / 1024 / 1024).toFixed(2)} MB`
       );
     }
 
