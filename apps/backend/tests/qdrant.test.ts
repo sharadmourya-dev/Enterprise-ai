@@ -1,12 +1,19 @@
 import { QdrantService, IQdrantPoint } from '../src/services/qdrant.service.js';
 import { BadRequestError } from '../src/utils/errors.js';
+import { env } from '../src/config/env.js';
 
 describe('Qdrant Vector Store Adapter & ACL Payload Validation', () => {
   const TEST_COLLECTION = 'test_qdrant_acl_chunks';
+  const originalCollection = env.QDRANT_COLLECTION_NAME;
   const DIMENSIONS = 768;
+
+  beforeAll(() => {
+    (env as any).QDRANT_COLLECTION_NAME = TEST_COLLECTION;
+  });
 
   // Cleanup test collection after tests
   afterAll(async () => {
+    (env as any).QDRANT_COLLECTION_NAME = originalCollection;
     try {
       const client = QdrantService.getClient();
       await client.deleteCollection(TEST_COLLECTION);

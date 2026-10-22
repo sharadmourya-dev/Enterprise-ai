@@ -12,6 +12,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:unit": "npm run test:unit --workspaces --if-present",
     "infra:up": "docker compose -f infrastructure/docker-compose.infra.yml up -d",
     "infra:down": "docker compose -f infrastructure/docker-compose.infra.yml down",
     "infra:logs": "docker compose -f infrastructure/docker-compose.infra.yml logs -f",

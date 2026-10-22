@@ -44,7 +44,7 @@ export function createApp(trustProxyOverride?: boolean | number | string): Expre
       origin: env.FRONTEND_URL,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-request-id'],
     })
   );
 

@@ -4,6 +4,8 @@
 *.env
 !.env.example
 !.env.sample
+!*.env.example
+!.env*.example
 
 # Dependencies
 node_modules/
@@ -22,6 +24,7 @@ coverage/
 infrastructure/data/
 apps/backend/data/
 /data/
+**/data/uploads/
 *.db
 *.sqlite
 
@@ -50,6 +53,7 @@ pnpm-debug.log*
 .tmp/
 temp/
 tmp/
+scratch/
 
 # Local environment and operating-system files
 .DS_Store

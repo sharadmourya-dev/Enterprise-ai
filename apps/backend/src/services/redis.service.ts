@@ -15,10 +15,18 @@ export class RedisService {
     }
 
     if (!redisInstance) {
+      const authOptions = env.REDIS_PASSWORD
+        ? {
+            username: env.REDIS_USERNAME || undefined,
+            password: env.REDIS_PASSWORD,
+          }
+        : {};
+
       redisInstance = new Redis({
         host: env.REDIS_HOST,
         port: env.REDIS_PORT,
-        password: env.REDIS_PASSWORD || undefined,
+        ...authOptions,
+        tls: env.REDIS_TLS ? { servername: env.REDIS_HOST } : undefined,
         maxRetriesPerRequest: null, // Compatible with BullMQ and standard atomic commands
         lazyConnect: true,
         connectTimeout: env.REDIS_OPERATION_TIMEOUT_MS,

@@ -1,5 +1,6 @@
 import { app } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/db.js';
+import { QdrantService } from './services/qdrant.service.js';
 import { env } from './config/env.js';
 import { logger } from './utils/logger.js';
 
@@ -8,6 +9,15 @@ async function bootstrap() {
     logger.info('Connecting to MongoDB...');
     await connectDatabase();
     logger.info('MongoDB connected successfully.');
+
+    try {
+      logger.info('Ensuring Qdrant vector collection exists...');
+      await QdrantService.ensureCollection();
+      logger.info('Qdrant collection initialized successfully.');
+    } catch (qdrantErr: unknown) {
+      const qdrantMsg = qdrantErr instanceof Error ? qdrantErr.message : String(qdrantErr);
+      logger.warn('Qdrant collection initialization deferred or unreachable on startup', { error: qdrantMsg });
+    }
 
     const server = app.listen(env.PORT, () => {
       logger.info(`Enterprise AI Copilot Backend running on http://localhost:${env.PORT}`);

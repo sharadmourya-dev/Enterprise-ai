@@ -12,6 +12,8 @@
     "clean": "rimraf dist",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs --runInBand --detectOpenHandles --forceExit",
+    "test:unit": "jest --config jest.config.unit.cjs --runInBand --detectOpenHandles",
+    "test:integration": "jest --config jest.config.integration.cjs --runInBand --detectOpenHandles --forceExit",
     "eval:rag": "tsx src/evaluation/run-eval.ts"
   },
   "dependencies": {

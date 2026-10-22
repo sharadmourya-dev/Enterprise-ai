@@ -10,17 +10,129 @@ export interface IQdrantPoint {
   payload: IQdrantChunkPayload;
 }
 
+/**
+ * Collections protected from modification or deletion during tests.
+ */
+export const PROTECTED_QDRANT_COLLECTIONS: ReadonlySet<string> = new Set([
+  'enterprise_knowledge_chunks',
+  'test_ingestion_chunks',
+]);
+
+/**
+ * Detects whether a URL points to a remote/cloud Qdrant service.
+ */
+export function isCloudQdrantUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const lower = url.toLowerCase();
+  return (
+    lower.includes('qdrant.tech') ||
+    lower.includes('cloud.qdrant') ||
+    lower.includes('.aws.') ||
+    lower.includes('.azure.') ||
+    lower.includes('.gcp.') ||
+    lower.includes('cloud')
+  );
+}
+
+/**
+ * Checks whether a URL targets a local or loopback endpoint.
+ */
+export function isLocalQdrantUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url.startsWith('http://') || url.startsWith('https://') ? url : `http://${url}`);
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host === '0.0.0.0' ||
+      host === 'qdrant'
+    );
+  } catch {
+    const lower = url.toLowerCase();
+    return lower.includes('localhost') || lower.includes('127.0.0.1') || lower.includes('::1');
+  }
+}
+
+/**
+ * Verifies that a Qdrant test endpoint is safe, local, and not a cloud service.
+ */
+export function assertSafeTestQdrantUrl(url: string): void {
+  if (!url || typeof url !== 'string' || url.trim() === '') {
+    throw new Error('FATAL TEST SAFETY ERROR: QDRANT_TEST_URL is required in test environment and cannot be empty.');
+  }
+
+  if (isCloudQdrantUrl(url)) {
+    throw new Error(
+      `FATAL TEST SAFETY ERROR: Cloud Qdrant endpoints are strictly prohibited for tests: "${url}". Tests must use an isolated local Qdrant instance.`
+    );
+  }
+
+  if (!isLocalQdrantUrl(url)) {
+    throw new Error(
+      `FATAL TEST SAFETY ERROR: Qdrant test URL must target a local/loopback endpoint (e.g., http://localhost:6333): "${url}".`
+    );
+  }
+}
+
+/**
+ * Guards against mutating protected collections during test runs.
+ */
+export function assertSafeTestCollectionMutation(collectionName: string, action: string): void {
+  const isTest = env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test';
+  if (isTest && PROTECTED_QDRANT_COLLECTIONS.has(collectionName)) {
+    throw new Error(
+      `FATAL TEST SAFETY ERROR: Attempted ${action} on protected collection "${collectionName}" during test execution. Tests must operate only on dedicated test collections.`
+    );
+  }
+}
+
 export class QdrantService {
   private static clientInstance: QdrantClient | null = null;
 
   public static getClient(): QdrantClient {
+    const isTest = env.NODE_ENV === 'test' || process.env.NODE_ENV === 'test';
+
     if (!this.clientInstance) {
-      this.clientInstance = new QdrantClient({
-        url: env.QDRANT_URL,
-        apiKey: env.QDRANT_API_KEY ? env.QDRANT_API_KEY : undefined,
-      });
+      if (isTest) {
+        // Enforce dedicated test endpoint; never fall back to application QDRANT_URL
+        const testUrl = process.env.QDRANT_TEST_URL || env.QDRANT_TEST_URL || 'http://localhost:6333';
+        assertSafeTestQdrantUrl(testUrl);
+
+        const client = new QdrantClient({
+          url: testUrl,
+          apiKey: undefined, // Never supply cloud API keys during tests
+        });
+
+        // Intercept deleteCollection to guarantee protected collections cannot be deleted
+        const originalDeleteCollection = client.deleteCollection.bind(client);
+        client.deleteCollection = async (collectionName: string) => {
+          if (PROTECTED_QDRANT_COLLECTIONS.has(collectionName)) {
+            throw new Error(
+              `FATAL TEST SAFETY ERROR: Deletion of protected collection "${collectionName}" is strictly prohibited.`
+            );
+          }
+          if (!collectionName.startsWith('test_')) {
+            throw new Error(
+              `FATAL TEST SAFETY ERROR: In test mode, only isolated test collections (prefix "test_") may be deleted. Attempted: "${collectionName}".`
+            );
+          }
+          return originalDeleteCollection(collectionName);
+        };
+
+        this.clientInstance = client;
+      } else {
+        this.clientInstance = new QdrantClient({
+          url: env.QDRANT_URL,
+          apiKey: env.QDRANT_API_KEY ? env.QDRANT_API_KEY : undefined,
+        });
+      }
     }
     return this.clientInstance;
+  }
+
+  public static resetClient(): void {
+    this.clientInstance = null;
   }
 
   /**
@@ -31,6 +143,7 @@ export class QdrantService {
     collectionName = env.QDRANT_COLLECTION_NAME,
     expectedDimensions = 768
   ): Promise<void> {
+    assertSafeTestCollectionMutation(collectionName, 'ensureCollection');
     const client = this.getClient();
 
     try {
@@ -80,6 +193,7 @@ export class QdrantService {
    * Creates payload indexes for authorization and query fields
    */
   public static async createPayloadIndexes(collectionName = env.QDRANT_COLLECTION_NAME): Promise<void> {
+    assertSafeTestCollectionMutation(collectionName, 'createPayloadIndexes');
     const client = this.getClient();
 
     const indexes = [
@@ -114,6 +228,7 @@ export class QdrantService {
     collectionName = env.QDRANT_COLLECTION_NAME
   ): Promise<void> {
     if (points.length === 0) return;
+    assertSafeTestCollectionMutation(collectionName, 'upsertPoints');
 
     const client = this.getClient();
 
@@ -158,6 +273,7 @@ export class QdrantService {
     documentId: string,
     collectionName = env.QDRANT_COLLECTION_NAME
   ): Promise<void> {
+    assertSafeTestCollectionMutation(collectionName, 'deleteDocumentVectors');
     const client = this.getClient();
 
     try {
@@ -186,6 +302,7 @@ export class QdrantService {
     revision: number,
     collectionName = env.QDRANT_COLLECTION_NAME
   ): Promise<void> {
+    assertSafeTestCollectionMutation(collectionName, 'deleteDocumentVectorsByRevision');
     const client = this.getClient();
 
     try {
@@ -218,6 +335,7 @@ export class QdrantService {
     currentRevision: number,
     collectionName = env.QDRANT_COLLECTION_NAME
   ): Promise<void> {
+    assertSafeTestCollectionMutation(collectionName, 'deleteOldRevisions');
     const client = this.getClient();
 
     try {
