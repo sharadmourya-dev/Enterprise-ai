@@ -14,7 +14,8 @@
     "test": "jest --config jest.config.cjs --runInBand --detectOpenHandles --forceExit",
     "test:unit": "jest --config jest.config.unit.cjs --runInBand --detectOpenHandles",
     "test:integration": "jest --config jest.config.integration.cjs --runInBand --detectOpenHandles --forceExit",
-    "eval:rag": "tsx src/evaluation/run-eval.ts"
+    "eval:rag": "tsx src/evaluation/run-eval.ts",
+    "admin:promote": "tsx src/scripts/promote-user.ts"
   },
   "dependencies": {
     "@enterprise-ai/shared-types": "*",
