@@ -4,6 +4,8 @@ export interface ILlmGenerateOptions {
   maxTokens?: number;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
+  maxRetries?: number;
+  initialRetryDelayMs?: number;
 }
 
 export interface ILlmGenerateResult {

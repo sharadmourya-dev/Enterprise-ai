@@ -15,18 +15,22 @@ import {
   DocumentMimeType,
 } from '@enterprise-ai/shared-types';
 import { ForbiddenError, BadGatewayError } from '../src/utils/errors.js';
+import { env } from '../src/config/env.js';
 
 describe('Secure Retrieval Service & Multi-Dimensional Authorization Filter Tests', () => {
   const TEST_COLLECTION = 'test_retrieval_secure_chunks';
+  const originalCollection = env.QDRANT_COLLECTION_NAME;
   const DIMENSIONS = 768;
 
   beforeAll(async () => {
+    (env as any).QDRANT_COLLECTION_NAME = TEST_COLLECTION;
     EmbeddingFactory.setProvider(new MockEmbeddingProvider(DIMENSIONS));
     await QdrantService.ensureCollection(TEST_COLLECTION, DIMENSIONS);
   });
 
   afterAll(async () => {
     EmbeddingFactory.setProvider(null);
+    (env as any).QDRANT_COLLECTION_NAME = originalCollection;
     try {
       const client = QdrantService.getClient();
       await client.deleteCollection(TEST_COLLECTION);

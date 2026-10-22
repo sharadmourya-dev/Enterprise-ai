@@ -5,6 +5,7 @@ import { StorageService } from '../src/services/storage.service.js';
 import { QdrantService } from '../src/services/qdrant.service.js';
 import { EmbeddingFactory } from '../src/services/embeddings/embedding.factory.js';
 import { MockEmbeddingProvider } from '../src/services/embeddings/mock.embedding.js';
+import { env } from '../src/config/env.js';
 import {
   DocumentMimeType,
   DocumentStatus,
@@ -14,16 +15,19 @@ import {
 
 describe('Ingestion Pipeline & Vector Indexing Integration Tests', () => {
   const TEST_COLLECTION = 'test_pipeline_chunks';
+  const originalCollection = env.QDRANT_COLLECTION_NAME;
   const mockUserId = '671350a12f3e8b0012345678';
   let documentStoragePath: string;
 
   beforeAll(async () => {
+    (env as any).QDRANT_COLLECTION_NAME = TEST_COLLECTION;
     EmbeddingFactory.setProvider(new MockEmbeddingProvider(768));
     await QdrantService.ensureCollection(TEST_COLLECTION, 768);
   });
 
   afterAll(async () => {
     EmbeddingFactory.setProvider(null);
+    (env as any).QDRANT_COLLECTION_NAME = originalCollection;
     try {
       const client = QdrantService.getClient();
       await client.deleteCollection(TEST_COLLECTION);

@@ -1,7 +1,12 @@
 import OpenAI from 'openai';
 import { ILlmProvider, ILlmGenerateOptions, ILlmGenerateResult } from './llm.interface.js';
+import { parseProviderError } from './gemini.llm.js';
 import { env } from '../../config/env.js';
-import { BadRequestError } from '../../utils/errors.js';
+import {
+  BadRequestError,
+  BadGatewayError,
+  ServiceUnavailableError,
+} from '../../utils/errors.js';
 import logger from '../../utils/logger.js';
 
 export class OpenAILlmProvider implements ILlmProvider {
@@ -48,6 +53,48 @@ export class OpenAILlmProvider implements ILlmProvider {
     return params;
   }
 
+  private async executeSingleAttempt(
+    prompt: string,
+    options: ILlmGenerateOptions | undefined
+  ): Promise<ILlmGenerateResult> {
+    const timeoutMs = options?.timeoutMs ?? 30000;
+    const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
+
+    if (options?.systemInstruction) {
+      messages.push({
+        role: 'system',
+        content: options.systemInstruction,
+      });
+    }
+
+    messages.push({
+      role: 'user',
+      content: prompt,
+    });
+
+    const requestParams = this.buildRequestParams(messages, options);
+
+    const requestOptions: { timeout: number; signal?: AbortSignal } = { timeout: timeoutMs };
+    if (options?.abortSignal) {
+      requestOptions.signal = options.abortSignal;
+    }
+
+    const response = await this.client!.chat.completions.create(
+      requestParams as any,
+      requestOptions
+    );
+
+    const choice = response.choices[0];
+    const text = choice?.message?.content || '';
+
+    return {
+      text,
+      promptTokens: response.usage?.prompt_tokens ?? Math.ceil(prompt.length / 4),
+      completionTokens: response.usage?.completion_tokens ?? Math.ceil(text.length / 4),
+      model: this.modelName,
+    };
+  }
+
   public async generateText(
     prompt: string,
     options?: ILlmGenerateOptions
@@ -58,48 +105,90 @@ export class OpenAILlmProvider implements ILlmProvider {
       );
     }
 
-    const timeoutMs = options?.timeoutMs ?? 30000;
+    const maxRetries = options?.maxRetries ?? 3;
+    const initialRetryDelayMs = options?.initialRetryDelayMs ?? 800;
 
-    try {
-      const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (options?.abortSignal?.aborted) {
+        throw new BadRequestError('LLM generation request aborted by client');
+      }
 
-      if (options?.systemInstruction) {
-        messages.push({
-          role: 'system',
-          content: options.systemInstruction,
+      try {
+        const result = await this.executeSingleAttempt(prompt, options);
+        if (attempt > 0) {
+          logger.info('OpenAI text generation succeeded after retry', {
+            model: this.modelName,
+            attempt: attempt + 1,
+          });
+        }
+        return result;
+      } catch (err: unknown) {
+        if (options?.abortSignal?.aborted) {
+          throw new BadRequestError('LLM generation request aborted by client');
+        }
+
+        const parsed = parseProviderError(err);
+        const isLastAttempt = attempt >= maxRetries;
+
+        if (!parsed.isTransient || isLastAttempt) {
+          logger.error('OpenAI text generation failed', {
+            model: this.modelName,
+            providerStatusCode: parsed.statusCode,
+            providerStatusText: parsed.statusText,
+            message: parsed.safeMessage,
+            totalAttempts: attempt + 1,
+            isTransient: parsed.isTransient,
+          });
+
+          if (parsed.statusCode === 503 || parsed.statusCode === 429) {
+            throw new ServiceUnavailableError(
+              `OpenAI upstream service unavailable (${parsed.statusCode}): ${parsed.safeMessage}`,
+              'LLM_PROVIDER_UNAVAILABLE'
+            );
+          } else if (parsed.statusCode >= 500) {
+            throw new BadGatewayError(
+              `OpenAI upstream provider error (${parsed.statusCode}): ${parsed.safeMessage}`,
+              'LLM_PROVIDER_ERROR'
+            );
+          } else {
+            throw new BadRequestError(
+              `Failed to generate text via OpenAI: ${parsed.safeMessage}`,
+              'LLM_GENERATION_FAILED'
+            );
+          }
+        }
+
+        const delayMs = Math.min(
+          6000,
+          initialRetryDelayMs * Math.pow(2, attempt) + Math.floor(Math.random() * 200)
+        );
+
+        logger.warn('OpenAI upstream returned transient error; retrying with backoff', {
+          model: this.modelName,
+          providerStatusCode: parsed.statusCode,
+          statusText: parsed.statusText,
+          attempt: attempt + 1,
+          maxAttempts: maxRetries + 1,
+          retryDelayMs: delayMs,
+          safeMessage: parsed.safeMessage,
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          const timerId = setTimeout(resolve, delayMs);
+          if (options?.abortSignal) {
+            const onAbort = () => {
+              clearTimeout(timerId);
+              reject(new BadRequestError('LLM generation request aborted by client'));
+            };
+            options.abortSignal.addEventListener('abort', onAbort, { once: true });
+          }
         });
       }
-
-      messages.push({
-        role: 'user',
-        content: prompt,
-      });
-
-      const requestParams = this.buildRequestParams(messages, options);
-
-      const requestOptions: { timeout: number; signal?: AbortSignal } = { timeout: timeoutMs };
-      if (options?.abortSignal) {
-        requestOptions.signal = options.abortSignal;
-      }
-
-      const response = await this.client.chat.completions.create(
-        requestParams as any,
-        requestOptions
-      );
-
-      const choice = response.choices[0];
-      const text = choice?.message?.content || '';
-
-      return {
-        text,
-        promptTokens: response.usage?.prompt_tokens ?? Math.ceil(prompt.length / 4),
-        completionTokens: response.usage?.completion_tokens ?? Math.ceil(text.length / 4),
-        model: this.modelName,
-      };
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error('OpenAI text generation error', { error: errMsg, model: this.modelName });
-      throw new BadRequestError(`Failed to generate text via OpenAI: ${errMsg}`);
     }
+
+    throw new ServiceUnavailableError(
+      'OpenAI text generation failed after maximum retries',
+      'LLM_PROVIDER_UNAVAILABLE'
+    );
   }
 }

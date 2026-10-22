@@ -10,9 +10,11 @@ import {
   IMessage,
   AuditAction,
   AuditResourceType,
+  DocumentStatus,
 } from '@enterprise-ai/shared-types';
 import { ConversationModel, IConversationEntity } from '../../models/Conversation.model.js';
 import { MessageModel } from '../../models/Message.model.js';
+import { DocumentModel } from '../../models/Document.model.js';
 import { RetrievalService } from '../retrieval.service.js';
 import { ContextAssembler } from '../rag/context-assembler.js';
 import { CitationValidator } from '../rag/citation-validator.js';
@@ -328,7 +330,10 @@ export class ConversationService {
         candidatesCount = candidates.length;
 
         if (candidates.length === 0) {
-          finalAnswer = this.INSUFFICIENT_EVIDENCE_ANSWER;
+          const hasAnyDocs = await DocumentModel.exists({ status: DocumentStatus.READY });
+          finalAnswer = hasAnyDocs
+            ? this.INSUFFICIENT_EVIDENCE_ANSWER
+            : 'No documents have been indexed in the knowledge repository yet. Please upload organizational documents in the Documents repository to enable Copilot answers.';
           finalCitations = [];
           insufficientEvidence = true;
         } else {

@@ -163,6 +163,25 @@ export class RetrievalService {
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
+
+      // Distinguish a missing/uninitialized collection (0 documents indexed)
+      // from a genuine connection or infrastructure failure.
+      const isCollectionMissing =
+        (err as any)?.status === 404 ||
+        errMsg.toLowerCase().includes("doesn't exist") ||
+        Boolean((err as any)?.data?.status?.error?.toLowerCase().includes("doesn't exist"));
+
+      if (isCollectionMissing) {
+        logger.info(
+          `Qdrant collection '${collectionName}' does not exist yet; returning empty candidates (no documents indexed)`,
+          { collection: collectionName }
+        );
+        return {
+          candidates: [],
+          timings: { embeddingMs, searchMs: Date.now() - startSearch },
+        };
+      }
+
       logger.error('Qdrant vector search failed', { error: errMsg, collection: collectionName });
       throw new BadGatewayError(`Vector database search failure: ${errMsg}`);
     }

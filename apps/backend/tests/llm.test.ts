@@ -1,9 +1,13 @@
 import { LlmFactory } from '../src/services/llm/llm.factory.js';
-import { GeminiLlmProvider } from '../src/services/llm/gemini.llm.js';
+import { GeminiLlmProvider, parseProviderError } from '../src/services/llm/gemini.llm.js';
 import { OpenAILlmProvider } from '../src/services/llm/openai.llm.js';
 import { MockLlmProvider } from '../src/services/llm/mock.llm.js';
 import { env } from '../src/config/env.js';
-import { BadRequestError } from '../src/utils/errors.js';
+import {
+  BadRequestError,
+  ServiceUnavailableError,
+  BadGatewayError,
+} from '../src/utils/errors.js';
 
 describe('LLM Provider Abstraction & Model Configuration Tests', () => {
   afterEach(() => {
@@ -114,6 +118,134 @@ describe('LLM Provider Abstraction & Model Configuration Tests', () => {
       await expect(provider.generateText('test prompt')).rejects.toThrow(
         /Gemini API key is not configured/
       );
+    });
+
+    it('6b. Retries and recovers from transient Google Gemini 503 "high demand" error', async () => {
+      const provider = new GeminiLlmProvider('gemini-3.8-flash');
+      const highDemandError = new Error(
+        JSON.stringify({
+          error: {
+            code: 503,
+            message: 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.',
+            status: 'UNAVAILABLE',
+          },
+        })
+      );
+
+      const mockGenerateContent = jest
+        .fn()
+        .mockRejectedValueOnce(highDemandError)
+        .mockResolvedValueOnce({
+          text: 'Answer generated after retry [S1].',
+          usageMetadata: { promptTokenCount: 40, candidatesTokenCount: 15 },
+        });
+
+      (provider as any).aiClient = {
+        models: { generateContent: mockGenerateContent },
+      };
+
+      const result = await provider.generateText('Policy question', {
+        initialRetryDelayMs: 10,
+        maxRetries: 2,
+      });
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      expect(result.text).toBe('Answer generated after retry [S1].');
+      expect(result.promptTokens).toBe(40);
+      expect(result.completionTokens).toBe(15);
+    });
+
+    it('6c. Retries and recovers from transient Google Gemini 429 rate limit error', async () => {
+      const provider = new GeminiLlmProvider('gemini-3.8-flash');
+      const rateLimitError = new Error(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Resource has been exhausted (e.g. check quota).',
+            status: 'RESOURCE_EXHAUSTED',
+          },
+        })
+      );
+
+      const mockGenerateContent = jest
+        .fn()
+        .mockRejectedValueOnce(rateLimitError)
+        .mockResolvedValueOnce({
+          text: 'Answer generated after rate limit backoff.',
+        });
+
+      (provider as any).aiClient = {
+        models: { generateContent: mockGenerateContent },
+      };
+
+      const result = await provider.generateText('Test question', {
+        initialRetryDelayMs: 10,
+        maxRetries: 2,
+      });
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      expect(result.text).toBe('Answer generated after rate limit backoff.');
+    });
+
+    it('6d. Fails immediately without retry on non-transient client error (e.g. 400 INVALID_ARGUMENT)', async () => {
+      const provider = new GeminiLlmProvider('gemini-3.8-flash');
+      const clientError = new Error(
+        JSON.stringify({
+          error: {
+            code: 400,
+            message: 'Invalid argument provided in request config.',
+            status: 'INVALID_ARGUMENT',
+          },
+        })
+      );
+
+      const mockGenerateContent = jest.fn().mockRejectedValue(clientError);
+      (provider as any).aiClient = {
+        models: { generateContent: mockGenerateContent },
+      };
+
+      await expect(
+        provider.generateText('Test question', { initialRetryDelayMs: 10, maxRetries: 3 })
+      ).rejects.toThrow(BadRequestError);
+
+      // Must NOT retry on 400
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+
+    it('6e. Throws ServiceUnavailableError (503) when transient failure persists after exhausting maxRetries', async () => {
+      const provider = new GeminiLlmProvider('gemini-3.8-flash');
+      const highDemandError = new Error(
+        JSON.stringify({
+          error: {
+            code: 503,
+            message: 'This model is currently experiencing high demand.',
+            status: 'UNAVAILABLE',
+          },
+        })
+      );
+
+      const mockGenerateContent = jest.fn().mockRejectedValue(highDemandError);
+      (provider as any).aiClient = {
+        models: { generateContent: mockGenerateContent },
+      };
+
+      await expect(
+        provider.generateText('Test question', { initialRetryDelayMs: 10, maxRetries: 2 })
+      ).rejects.toThrow(ServiceUnavailableError);
+
+      // Initial attempt + 2 retries = 3 attempts
+      expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+    });
+
+    it('6f. parseProviderError extracts structured diagnostics and redacts credentials', () => {
+      const errorWithKey = new Error(
+        'Request failed at endpoint https://generativelanguage.googleapis.com?key=AIzaSySecretApiKey123: 503 High Demand'
+      );
+      const parsed = parseProviderError(errorWithKey);
+
+      expect(parsed.isTransient).toBe(true);
+      expect(parsed.safeMessage).not.toContain('AIzaSySecretApiKey123');
+      expect(parsed.safeMessage).toContain('key=[REDACTED]');
     });
   });
 

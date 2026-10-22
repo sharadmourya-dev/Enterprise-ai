@@ -5,9 +5,11 @@ import {
   MessageSender,
   AuditAction,
   AuditResourceType,
+  DocumentStatus,
 } from '@enterprise-ai/shared-types';
 import { ConversationModel } from '../../models/Conversation.model.js';
 import { MessageModel } from '../../models/Message.model.js';
+import { DocumentModel } from '../../models/Document.model.js';
 import { RetrievalService } from '../retrieval.service.js';
 import { ContextAssembler } from '../rag/context-assembler.js';
 import { CitationValidator } from '../rag/citation-validator.js';
@@ -238,7 +240,10 @@ export class SseStreamService {
         const candidates = searchRes.candidates;
 
         if (candidates.length === 0) {
-          finalAnswer = this.INSUFFICIENT_EVIDENCE_ANSWER;
+          const hasAnyDocs = await DocumentModel.exists({ status: DocumentStatus.READY });
+          finalAnswer = hasAnyDocs
+            ? this.INSUFFICIENT_EVIDENCE_ANSWER
+            : 'No documents have been indexed in the knowledge repository yet. Please upload organizational documents in the Documents repository to enable Copilot answers.';
           finalCitations = [];
         } else {
           const assembledContext = ContextAssembler.assemble(candidates);
@@ -272,7 +277,14 @@ export class SseStreamService {
                 logger.info('Downstream LLM generation aborted due to client disconnect');
                 return;
               }
-              logger.error('LLM generation failed in SSE stream', { error: errMsg });
+              const statusCode = (err as any)?.statusCode || 500;
+              const errorCode = (err as any)?.errorCode || 'LLM_GENERATION_FAILED';
+              logger.error('LLM generation failed in SSE stream', {
+                error: errMsg,
+                statusCode,
+                errorCode,
+                model: modelName,
+              });
               this.emitTerminalEvent(res, 'message.error', {
                 code: 'LLM_GENERATION_FAILED',
                 message: 'Failed to generate model response. Please retry.',
