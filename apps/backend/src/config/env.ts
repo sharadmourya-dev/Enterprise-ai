@@ -74,8 +74,14 @@ export const envSchema = z
     GEMINI_API_KEY: z.string().optional().default(''),
     OPENAI_API_KEY: z.string().optional().default(''),
     GEMINI_MODEL: z.string().default('gemini-3.8-flash'),
+    GEMINI_FALLBACK_MODELS: z.string().default('gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.1-flash-lite'),
     GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-2'),
     OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+    OPENAI_FALLBACK_MODELS: z.string().default('gpt-4o,gpt-4-turbo'),
+    LLM_FALLBACK_MODELS: z.string().optional(),
+    LLM_OVERALL_DEADLINE_MS: z.coerce.number().default(35000),
+    LLM_ATTEMPT_TIMEOUT_MS: z.coerce.number().default(12000),
+    LLM_MAX_RETRIES_PER_MODEL: z.coerce.number().default(1),
     OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
 
     // Ingestion & RAG

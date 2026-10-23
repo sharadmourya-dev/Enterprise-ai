@@ -2,33 +2,32 @@ name: Enterprise AI Copilot CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [master, main]
   pull_request:
-    branches: [main, master, develop]
+    branches: [master, main]
+
+permissions:
+  contents: read
 
 jobs:
   verify:
-    name: Lint, Typecheck & Test
+    name: Verify, Typecheck & Test
     runs-on: ubuntu-latest
 
-    services:
-      mongodb:
-        image: mongo:7.0
-        ports:
-          - 27017:27017
-        options: --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'" --health-interval 5s --health-timeout 5s --health-retries 5
-
-      redis:
-        image: redis:7.2-alpine
-        ports:
-          - 6379:6379
-        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 5
-
-      qdrant:
-        image: qdrant/qdrant:latest
-        ports:
-          - 6333:6333
-          - 6334:6334
+    env:
+      NODE_ENV: test
+      JWT_ACCESS_SECRET: strong_ci_test_access_secret_with_32_characters_123456
+      JWT_REFRESH_SECRET: strong_ci_test_refresh_secret_with_32_characters_123456
+      AUDIT_LOG_HMAC_SECRET: strong_ci_test_hmac_secret_with_32_characters_123456
+      MONGODB_URI: mongodb://127.0.0.1:27017/enterprise_ai?replicaSet=rs0&directConnection=true
+      MONGODB_TEST_URI: mongodb://127.0.0.1:27017/enterprise_ai_test?replicaSet=rs0&directConnection=true
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      QDRANT_URL: http://127.0.0.1:6333
+      QDRANT_TEST_URL: http://127.0.0.1:6333
+      NEXT_PUBLIC_API_URL: http://localhost:5000/api/v1
+      LLM_PROVIDER: gemini
+      GEMINI_API_KEY: ci_mock_gemini_api_key_placeholder
 
     steps:
       - name: Checkout repository
@@ -43,8 +42,83 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck shared packages
-        run: npm run typecheck
+      - name: Start isolated local test infrastructure
+        run: npm run infra:up
+
+      - name: Wait for services to be healthy
+        run: |
+          node -e '
+            const net = require("net");
+            const { execSync } = require("child_process");
+
+            const checkTcp = (host, port, timeoutMs = 1000) => {
+              return new Promise((resolve) => {
+                const s = new net.Socket();
+                s.setTimeout(timeoutMs);
+                s.once("connect", () => { s.destroy(); resolve(true); });
+                s.once("timeout", () => { s.destroy(); resolve(false); });
+                s.once("error", () => { s.destroy(); resolve(false); });
+                s.connect(port, host);
+              });
+            };
+
+            const checkQdrant = async () => {
+              try {
+                const res = await fetch("http://127.0.0.1:6333/readyz");
+                return res.ok;
+              } catch {
+                return false;
+              }
+            };
+
+            const checkMongoReplica = () => {
+              try {
+                execSync("docker compose -f infrastructure/docker-compose.infra.yml exec -T mongodb mongosh --quiet --eval \"try { const s = rs.status(); if (s.ok === 1 && s.set === \\\"rs0\\\" && Array.isArray(s.members) && s.members.some(m => m.stateStr === \\\"PRIMARY\\\")) { quit(0); } } catch (e) {} quit(1);\"", { timeout: 5000, stdio: ["pipe", "pipe", "ignore"] });
+                return true;
+              } catch {
+                return false;
+              }
+            };
+
+            const waitForAll = async () => {
+              for (let i = 0; i < 40; i++) {
+                const [qdrantReady, redisReady] = await Promise.all([
+                  checkQdrant(),
+                  checkTcp("127.0.0.1", 6379),
+                ]);
+
+                const mongoReady = checkMongoReplica();
+
+                if (qdrantReady && redisReady && mongoReady) {
+                  console.log("Test infrastructure is healthy and ready (MongoDB rs0 PRIMARY, Redis, Qdrant).");
+                  process.exit(0);
+                }
+                await new Promise(r => setTimeout(r, 1000));
+              }
+              console.error("FATAL: Timeout waiting for infrastructure readiness (MongoDB rs0 PRIMARY, Redis, or Qdrant).");
+              process.exit(1);
+            };
+
+            waitForAll();
+          '
 
       - name: Build shared packages
+        run: npm run build:packages
+
+      - name: Typecheck all workspaces
+        run: npm run typecheck
+
+      - name: Run backend tests
+        run: npm run test --workspace=@enterprise-ai/backend
+
+      - name: Run frontend tests
+        run: npm run test --workspace=@enterprise-ai/frontend
+
+      - name: Build backend and frontend production bundles
         run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Teardown test infrastructure
+        if: always()
+        run: npm run infra:down

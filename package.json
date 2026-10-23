@@ -8,8 +8,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build:packages": "npm run build --workspace=@enterprise-ai/shared-types",
+    "build": "npm run build:packages && npm run build --workspace=@enterprise-ai/backend && npm run build --workspace=@enterprise-ai/frontend",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:unit": "npm run test:unit --workspaces --if-present",

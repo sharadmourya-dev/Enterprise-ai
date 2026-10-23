@@ -278,7 +278,14 @@ export class SseStreamService {
                 return;
               }
               const statusCode = (err as any)?.statusCode || 500;
-              const errorCode = (err as any)?.errorCode || 'LLM_GENERATION_FAILED';
+              const errorCode = (err as any)?.errorCode || 'AI_SERVICE_UNAVAILABLE';
+              const userSafeMessage =
+                (err as any)?.errorCode === 'AI_SERVICE_UNAVAILABLE'
+                  ? 'The AI service is temporarily unavailable. We tried the available models but could not complete your request. Please try again shortly.'
+                  : (err as any)?.isOperational && (err as any)?.message
+                    ? (err as any).message
+                    : 'The AI service is temporarily unavailable. We tried the available models but could not complete your request. Please try again shortly.';
+
               logger.error('LLM generation failed in SSE stream', {
                 error: errMsg,
                 statusCode,
@@ -286,8 +293,8 @@ export class SseStreamService {
                 model: modelName,
               });
               this.emitTerminalEvent(res, 'message.error', {
-                code: 'LLM_GENERATION_FAILED',
-                message: 'Failed to generate model response. Please retry.',
+                code: errorCode,
+                message: userSafeMessage,
               }, flags);
               return;
             }

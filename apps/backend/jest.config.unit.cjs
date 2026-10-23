@@ -13,5 +13,7 @@ module.exports = {
     '<rootDir>/tests/cors.test.ts',
     '<rootDir>/tests/mongo-safety.test.ts',
     '<rootDir>/tests/admin-promote.test.ts',
+    '<rootDir>/tests/llm.test.ts',
+    '<rootDir>/tests/llm-fallback.test.ts',
   ],
 };

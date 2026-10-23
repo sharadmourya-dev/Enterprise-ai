@@ -70,7 +70,7 @@ export function parseProviderError(err: unknown): IProviderErrorDetails {
     statusCode === 502 || // Bad Gateway
     statusCode === 504 || // Gateway Timeout
     statusCode === 500 || // Internal Google server error
-    /high demand|spikes in demand|overloaded|temporarily unavailable|resource_exhausted|rate limit|econnreset|etimedout/i.test(
+    /high demand|spikes in demand|overloaded|temporarily unavailable|resource_exhausted|rate limit|econnreset|etimedout|timeout|timed out/i.test(
       safeMessage
     );
 

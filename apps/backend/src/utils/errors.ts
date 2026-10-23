@@ -3,6 +3,7 @@ import { IApiErrorDetails } from '@enterprise-ai/shared-types';
 export class AppError extends Error {
   public readonly statusCode: number;
   public readonly errorCode: string;
+  public readonly isOperational = true;
   public readonly details?: IApiErrorDetails[];
 
   constructor(message: string, statusCode = 500, errorCode = 'INTERNAL_SERVER_ERROR', details?: IApiErrorDetails[]) {

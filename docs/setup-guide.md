@@ -85,9 +85,15 @@ In the opened editor, paste the generated secrets and your local settings.
 | `LLM_PROVIDER` | AI Model | Local Config | LLM Factory | Phase 4+ | Active LLM provider: `'gemini'` or `'openai'`. |
 | `GEMINI_API_KEY` | External AI | **Google AI Studio** | LangChain / Gemini | Phase 3+ / 4+ | API Key from Google AI Studio. **Never commit or share in chat.** |
 | `OPENAI_API_KEY` | External AI | **OpenAI Platform** | LangChain / OpenAI | Phase 3+ / 4+ | API Key from OpenAI Platform. **Never commit or share in chat.** |
-| `GEMINI_MODEL` | AI Model | Configuration | LLM Factory | Phase 4+ | Active Gemini model identifier (Default: `gemini-3.8-flash`; official stable model: `https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash`; `gemini-1.5-pro` shut down Sept 2025). |
+| `GEMINI_MODEL` | AI Model | Configuration | LLM Factory | Phase 4+ | Active primary Gemini model identifier (Default: `gemini-3.8-flash`). |
+| `GEMINI_FALLBACK_MODELS`| AI Model | Configuration | LLM Factory | Phase 4+ | Ordered comma-separated Gemini fallback model IDs (Default: `gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.1-flash-lite`). |
 | `GEMINI_EMBEDDING_MODEL`| AI Model | Configuration | Embeddings | Phase 3+ | Active Gemini embedding model (Default: `gemini-embedding-2`; 768 dims). |
-| `OPENAI_MODEL` | AI Model | Configuration | LLM Factory | Phase 4+ | Active OpenAI model identifier (Default: `gpt-4o-mini`; official text-generation model: `https://platform.openai.com/docs/models/gpt-4o-mini`). |
+| `OPENAI_MODEL` | AI Model | Configuration | LLM Factory | Phase 4+ | Active OpenAI model identifier (Default: `gpt-4o-mini`). |
+| `OPENAI_FALLBACK_MODELS`| AI Model | Configuration | LLM Factory | Phase 4+ | Ordered comma-separated OpenAI fallback model IDs (Default: `gpt-4o,gpt-4-turbo`). |
+| `LLM_FALLBACK_MODELS` | AI Model | Configuration | LLM Factory | Phase 4+ | Generic fallback model override list across active provider. |
+| `LLM_OVERALL_DEADLINE_MS`| Timing | Tuning Param | Fallback LLM | Phase 4+ | Maximum overall generation deadline in milliseconds across all models and retries (Default: `35000` = 35s). |
+| `LLM_ATTEMPT_TIMEOUT_MS`| Timing | Tuning Param | Fallback LLM | Phase 4+ | Per-attempt request timeout in milliseconds for each candidate model (Default: `12000` = 12s). |
+| `LLM_MAX_RETRIES_PER_MODEL`| Timing| Tuning Param | Fallback LLM | Phase 4+ | Maximum retries per model for transient errors before switching to next fallback (Default: `1`). |
 | `OPENAI_EMBEDDING_MODEL`| AI Model | Configuration | Embeddings | Phase 3+ | Active OpenAI embedding model (Default: `text-embedding-3-small`; 1536 dims). |
 | `CHUNK_SIZE` | Ingestion | Tuning Param | Chunker | Phase 3+ | Ingestion text chunk size in tokens (Default: `500`). |
 | `CHUNK_OVERLAP` | Ingestion | Tuning Param | Chunker | Phase 3+ | Ingestion overlap size in tokens (Default: `50`). |
@@ -421,3 +427,96 @@ $feedbackRes.data | Format-List id, rating, category, reviewedByAdmin
 $auditVerifyRes = Invoke-RestMethod -Uri "http://localhost:5000/api/v1/admin/audit/verify" -Method Get -Headers $headers
 $auditVerifyRes.data | Format-List isValid, totalVerified, firstCorruptedSequence
 ```
+
+---
+
+## 10. Resilient LLM Fallback, Timing & Error Handling Architecture
+
+The Copilot employs a provider-aware fallback strategy to eliminate single-model failure points, transient provider downtime (`HTTP 503 UNAVAILABLE`), and per-model quota exhaustion (`HTTP 429 RESOURCE_EXHAUSTED`).
+
+### 10.1 Verified Gemini Candidate Models Matrix
+
+Based on empirical testing against Google's Model Directory and actual project credentials:
+
+| Dashboard Display Name | Exact API Model ID | Status / Behavior | Verified Latency | Role in Fallback Chain |
+| :--- | :--- | :--- | :--- | :--- |
+| **Gemini 3.8 Flash** | `gemini-3.8-flash` | High load / Model-specific Free Tier Quota limit | N/A (Times out or 429) | Primary model (Configurable) |
+| **Gemini 3.5 Flash Lite** | `gemini-3.5-flash-lite` | **Active & Grounded** | **~1,400 ms** | 1st Fallback Candidate |
+| **Gemini 3.5 Flash** | `gemini-3.5-flash` | **Active & Grounded** | **~3,900 ms** | 2nd Fallback Candidate |
+| **Gemini 3.1 Flash Lite** | `gemini-3.1-flash-lite` | **Active & Grounded** | **~9,600 ms** | 3rd Fallback Candidate |
+| **Gemini 3.6 Flash** | `gemini-3.6-flash` | Transient 503 High Demand | N/A | Optional Candidate |
+| **Gemini 3 Flash** | `gemini-3-flash-preview` | Transient 503 High Demand | N/A | Experimental Preview |
+
+### 10.2 Transient vs. Non-Transient Failure Classification
+
+- **Fail-Over Transient Errors**:
+  - `HTTP 503 UNAVAILABLE` / High demand spikes
+  - `HTTP 500 INTERNAL_ERROR`
+  - `HTTP 502 BAD_GATEWAY` / `HTTP 504 GATEWAY_TIMEOUT`
+  - Per-attempt client timeouts (`LLM_ATTEMPT_TIMEOUT_MS`)
+  - `HTTP 429 RESOURCE_EXHAUSTED` (Rate limits / Quota exhaustion): Immediately advances to the next model with independent quota.
+- **Fast-Fail Permanent Errors** (No retries, no fallback traversal):
+  - `HTTP 401 UNAUTHENTICATED` (Invalid API key)
+  - `HTTP 403 PERMISSION_DENIED`
+  - `HTTP 400 INVALID_ARGUMENT`
+  - Client disconnects / `AbortSignal` cancellation
+
+### 10.3 Timing Budgets & Prevention of Retry Storms
+
+- **Overall Generation Deadline**: `LLM_OVERALL_DEADLINE_MS` (Default: `35000` = 35s). A single user inquiry shares this unified deadline across all attempts, candidate models, and backoffs.
+- **Per-Attempt Timeout**: `LLM_ATTEMPT_TIMEOUT_MS` (Default: `12000` = 12s). Prevents a hanging model from exhausting the entire user request duration.
+- **Max Retries per Model**: `LLM_MAX_RETRIES_PER_MODEL` (Default: `1`). Avoids cross-layer retry multiplication.
+- **Graceful Failure**: If all candidate models fail or the deadline expires, the system returns a structured, user-safe error message:
+  *“The AI service is temporarily unavailable. We tried the available models but could not complete your request. Please try again shortly.”*
+  No response is ever hallucinated or presented as grounded without verified citations.
+
+---
+
+## 11. CI/CD Workflow & Deployment Protection
+
+### 11.1 Continuous Integration (`.github/workflows/ci.yml`)
+
+The repository runs an automated CI pipeline on pull requests and pushes to `master`:
+1. **Clean Installation**: `npm ci` strictly enforces `package-lock.json`.
+2. **Deterministic Build Order**: Compiles `@enterprise-ai/shared-types` via `npm run build:packages` before typechecking dependent workspaces.
+3. **Workspace Typechecks**: `npm run typecheck` runs across `packages/shared-types`, `apps/backend`, and `apps/frontend` under strict TypeScript rules.
+4. **Test Suites**:
+   - Backend unit and integration tests: `npm run test --workspace=@enterprise-ai/backend`
+   - Frontend Jest tests: `npm run test --workspace=@enterprise-ai/frontend`
+5. **Production Build Bundling**: `npm run build` verifies Next.js and backend TypeScript production outputs.
+
+### 11.2 Production Deployment Protection
+
+To guarantee that broken builds never release to production:
+
+#### GitHub Branch Protection (Recommended)
+1. In your GitHub repository: Navigate to **Settings** > **Branches** > **Branch protection rules**.
+2. Target branch: `master`.
+3. Enable: **Require status checks to pass before merging**.
+4. Select the status check: **`Verify, Typecheck & Test`** from the CI workflow.
+5. Enable: **Require branches to be up to date before merging**.
+
+#### Vercel Frontend Deployment Protection
+- **Automatic Git Deployments**: Vercel automatically deploys pushes to `master`. With GitHub branch protection enabled, pull requests cannot merge to `master` unless CI passes.
+- **Environment Configuration**: Set `NEXT_PUBLIC_API_URL` in Vercel Project Settings > Environment Variables pointing to your Render backend API: `https://<your-render-subdomain>.onrender.com/api/v1`.
+- **Instant Rollback**: If an issue arises in production, open **Vercel Dashboard** > **Deployments** > click on the previous successful deployment > select **Instant Rollback**.
+
+#### Render Backend Deployment Protection
+- **Automatic Git Deployments**: Render connects to GitHub and builds on push to `master`. Gating merges behind passing GitHub status checks guarantees only verified code reaches `master`.
+- **Deploy Hooks**: Alternatively, disable **Auto-Deploy** in the Render service settings and add a curl step in GitHub Actions after the build step to trigger the Render Deploy Hook.
+- **Environment Configuration**: Set secrets (`MONGODB_URI`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `AUDIT_LOG_HMAC_SECRET`, `GEMINI_API_KEY`, `CLOUDINARY_API_SECRET`) solely in the Render Environment Dashboard. Never commit real `.env` files.
+- **Manual Rollback**: In **Render Dashboard** > select your service > navigate to **Deploys** > select the previous known-good deploy > click **Rollback to this deploy**.
+
+---
+
+## 12. Free-Tier Platform Limitations & Production Notes
+
+1. **Render Free-Tier Spin-Down**:
+   - Web services on Render's free tier automatically spin down (sleep) after 15 minutes of inactivity.
+   - The first incoming request after sleep will experience a cold-start delay of 30–50 seconds while the container initializes.
+2. **Separate Ingestion Worker Architecture**:
+   - Document chunking, vector embedding, and Qdrant indexing run in a background BullMQ worker process (`npm run worker --workspace=@enterprise-ai/backend`).
+   - On free-tier platforms without persistent multi-process support, ensure Redis Cloud / Qdrant Cloud connections remain reachable by both the Express API and the worker process.
+3. **Google Gemini Free-Tier Quota Limits**:
+   - The Google AI Studio free tier limits requests per minute (RPM) and requests per day (RPD) on specific model IDs (e.g. 20 requests/day limit on `gemini-3.8-flash`).
+   - The configured fallback models (`gemini-3.5-flash-lite`, `gemini-3.5-flash`) maintain separate quota pools and provide continuous uptime during primary model rate limits.

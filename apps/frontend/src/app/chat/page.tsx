@@ -225,6 +225,11 @@ export default function ChatPage() {
       }
     }
 
+    // Explicit runtime guard guarantees targetConvId is non-null string
+    if (!targetConvId) {
+      return;
+    }
+
     const userMsg: IMessage = {
       id: `temp-user-${Date.now()}`,
       conversationId: targetConvId,
@@ -271,7 +276,7 @@ export default function ChatPage() {
           onCompleted: (data) => {
             const assistantMsg: IMessage = {
               id: data.messageId,
-              conversationId: targetConvId!,
+              conversationId: targetConvId,
               sender: MessageSender.ASSISTANT,
               content: accumulatedContent,
               status: 'completed',
@@ -300,7 +305,7 @@ export default function ChatPage() {
 
             const errorMsg: IMessage = {
               id: `error-${Date.now()}`,
-              conversationId: targetConvId!,
+              conversationId: targetConvId,
               sender: MessageSender.ASSISTANT,
               content: '',
               status: 'failed',

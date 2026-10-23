@@ -191,6 +191,9 @@ export class RagService {
         maxTokens: 1024,
       });
     } catch (err: unknown) {
+      if ((err as any)?.isOperational) {
+        throw err;
+      }
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error('LLM provider failure during generation', { error: errMsg });
       throw new BadGatewayError(`LLM generation service failure: ${errMsg}`);

@@ -2,6 +2,7 @@ import { ILlmProvider } from './llm.interface.js';
 import { GeminiLlmProvider } from './gemini.llm.js';
 import { OpenAILlmProvider } from './openai.llm.js';
 import { MockLlmProvider } from './mock.llm.js';
+import { FallbackLlmProvider } from './fallback.llm.js';
 import { env } from '../../config/env.js';
 import { BadRequestError } from '../../utils/errors.js';
 
@@ -16,7 +17,9 @@ export class LlmFactory {
   }
 
   /**
-   * Retrieves the active LLM provider based on configuration or test override
+   * Retrieves the active resilient LLM provider based on configuration or test override.
+   * Wraps configured primary and fallback models into a FallbackLlmProvider for automatic
+   * failover on transient upstream issues while enforcing the global request deadline.
    */
   public static getProvider(): ILlmProvider {
     if (this.customProvider) {
@@ -29,10 +32,34 @@ export class LlmFactory {
     }
 
     switch (env.LLM_PROVIDER) {
-      case 'gemini':
-        return new GeminiLlmProvider();
-      case 'openai':
-        return new OpenAILlmProvider();
+      case 'gemini': {
+        const fallbackString = env.LLM_FALLBACK_MODELS || env.GEMINI_FALLBACK_MODELS || '';
+        const fallbackModels = fallbackString
+          .split(',')
+          .map((m) => m.trim())
+          .filter(Boolean);
+
+        return new FallbackLlmProvider(
+          'gemini',
+          env.GEMINI_MODEL,
+          fallbackModels,
+          (modelName: string) => new GeminiLlmProvider(modelName)
+        );
+      }
+      case 'openai': {
+        const fallbackString = env.LLM_FALLBACK_MODELS || env.OPENAI_FALLBACK_MODELS || '';
+        const fallbackModels = fallbackString
+          .split(',')
+          .map((m) => m.trim())
+          .filter(Boolean);
+
+        return new FallbackLlmProvider(
+          'openai',
+          env.OPENAI_MODEL,
+          fallbackModels,
+          (modelName: string) => new OpenAILlmProvider(modelName)
+        );
+      }
       default:
         throw new BadRequestError(`Unsupported LLM provider '${env.LLM_PROVIDER}' configured`);
     }

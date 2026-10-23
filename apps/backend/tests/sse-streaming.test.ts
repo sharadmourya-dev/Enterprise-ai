@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import { app } from '../src/app.js';
 import { ConversationModel } from '../src/models/Conversation.model.js';
 import { MessageModel } from '../src/models/Message.model.js';
+import { DocumentModel } from '../src/models/Document.model.js';
 import { RetrievalService } from '../src/services/retrieval.service.js';
 import { LlmFactory } from '../src/services/llm/llm.factory.js';
 import { MockLlmProvider } from '../src/services/llm/mock.llm.js';
@@ -16,6 +17,7 @@ import {
   ClearanceLevel,
   IRetrievalCandidate,
   MessageSender,
+  DocumentStatus,
 } from '@enterprise-ai/shared-types';
 import { SseStreamService } from '../src/services/sse/sse-stream.service.js';
 import { EventEmitter } from 'events';
@@ -39,6 +41,7 @@ describe('Phase 5 — Server-Sent Events (SSE) Citation-Safe Streaming Tests (Pa
     mockRedis.clear();
     await ConversationModel.deleteMany({});
     await MessageModel.deleteMany({});
+    await DocumentModel.deleteMany({});
   });
 
   afterEach(() => {
@@ -152,6 +155,8 @@ describe('Phase 5 — Server-Sent Events (SSE) Citation-Safe Streaming Tests (Pa
         status: 'active',
       });
 
+      jest.spyOn(DocumentModel, 'exists').mockResolvedValueOnce({ _id: new mongoose.Types.ObjectId() } as any);
+
       jest.spyOn(RetrievalService, 'search').mockResolvedValueOnce({
         candidates: [],
         timings: { embeddingMs: 5, searchMs: 8, totalMs: 13 },
@@ -233,10 +238,16 @@ describe('Phase 5 — Server-Sent Events (SSE) Citation-Safe Streaming Tests (Pa
       });
 
       let capturedAbortSignal: AbortSignal | undefined;
+      let onGenerationStarted: () => void;
+      const generationStartedPromise = new Promise<void>((resolve) => {
+        onGenerationStarted = resolve;
+      });
+
       mockLlm.setHandler(async (_prompt, options) => {
         capturedAbortSignal = options?.abortSignal;
+        onGenerationStarted();
         // Simulate in-flight processing delay
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => setTimeout(resolve, 200));
         return { text: 'Done', model: 'mock' };
       });
 
@@ -269,10 +280,8 @@ describe('Phase 5 — Server-Sent Events (SSE) Citation-Safe Streaming Tests (Pa
         'key_disconnect_123'
       );
 
-      // Allow stream setup and user message creation
-      await new Promise((resolve) => setTimeout(resolve, 30));
-
-      // Simulate client TCP socket close before response writableEnded
+      // Wait until generation is actively in-flight, then simulate client TCP socket close
+      await generationStartedPromise;
       fakeRes.emit('close');
 
       await streamPromise;

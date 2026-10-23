@@ -51,12 +51,13 @@ enterprise-ai/
 ### 1. Install Workspace Dependencies
 On Windows, run npm commands via `cmd /c npm` or `npm.cmd`:
 ```powershell
-cmd /c npm install
+cmd /c npm ci
 ```
 
 ### 2. Build Shared Types
+Build shared contracts before typechecking or running dependent workspaces:
 ```powershell
-cmd /c npm run build
+cmd /c npm run build:packages
 ```
 
 ### 3. Start Local Infrastructure
@@ -75,6 +76,22 @@ Copy `.env.example` to `.env` and configure your local settings. Follow the deta
 
 ```powershell
 Copy-Item .env.example .env
+```
+
+### 5. Typecheck & Test
+Run workspace typechecks and test suites locally:
+```powershell
+# Typecheck all workspaces (builds shared types first)
+cmd /c npm run typecheck
+
+# Run backend unit tests (pure in-memory tests)
+cmd /c npm run test:unit --workspace=@enterprise-ai/backend
+
+# Run frontend tests
+cmd /c npm run test --workspace=@enterprise-ai/frontend
+
+# Run production builds
+cmd /c npm run build
 ```
 
 ---

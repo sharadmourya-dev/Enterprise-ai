@@ -13,8 +13,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -b",
-    "clean": "rimraf dist",
+    "build": "tsc -b --force",
+    "clean": "rimraf dist tsconfig.tsbuildinfo",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
