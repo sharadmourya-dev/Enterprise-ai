@@ -53,35 +53,51 @@ export function MessageBubble({
 
   const citations: CitationItem[] = (message.citations as unknown as CitationItem[]) || [];
 
+  if (isUser) {
+    return (
+      <div className={cn('flex justify-end gap-2.5 my-3', className)}>
+        <div className="max-w-[85%] sm:max-w-[75%] space-y-1">
+          {/* Header metadata */}
+          <div className="flex items-center justify-end gap-2 text-[11px] text-muted pr-1">
+            <span className="font-semibold text-primary">You</span>
+            <span>&bull;</span>
+            <span>
+              {message.createdAt
+                ? new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'Just now'}
+            </span>
+          </div>
+
+          {/* Electric-Blue User Bubble */}
+          <div className="bg-brand-primary text-white px-4 py-3 rounded-2xl rounded-tr-xs shadow-sm text-sm leading-relaxed break-words">
+            <p className="whitespace-pre-wrap">{message.content}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
-        'group flex gap-3 sm:gap-4 py-4 px-2 sm:px-4 rounded-xl transition-colors',
-        isUser ? 'bg-surface-elevated/40' : 'bg-surface border border-subtle/80 shadow-xs',
+        'group flex gap-3 sm:gap-4 my-4 p-4 sm:p-5 rounded-2xl rounded-tl-xs bg-surface-elevated/70 border border-subtle/80 shadow-xs transition-colors',
         className
       )}
     >
-      {/* Avatar Icon */}
-      <div
-        className={cn(
-          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-white shadow-xs',
-          isUser ? 'bg-slate-600' : 'bg-brand-primary'
-        )}
-      >
-        {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+      {/* Assistant Avatar */}
+      <div className="w-8 h-8 rounded-lg bg-brand-primary text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+        <Sparkles className="w-4 h-4" />
       </div>
 
       {/* Message Body & Metadata */}
-      <div className="flex-1 min-w-0 space-y-2">
-        {/* Header line with Sender name & Timestamp */}
+      <div className="flex-1 min-w-0 space-y-2.5">
+        {/* Header line with Sender name & Model info */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-primary">
-              {isUser ? 'You' : 'Knowledge Copilot'}
-            </span>
+            <span className="text-xs font-bold text-primary">Knowledge Copilot</span>
 
-            {!isUser && message.modelName && (
-              <Badge variant="default" size="sm" className="hidden sm:inline-flex text-[10px] py-0 px-1.5">
+            {message.modelName && (
+              <Badge variant="default" size="sm" className="hidden sm:inline-flex text-[10px] py-0 px-1.5 font-mono">
                 {message.modelName}
               </Badge>
             )}
@@ -117,39 +133,33 @@ export function MessageBubble({
                 size="sm"
                 onClick={onRetry}
                 leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
-                className="mt-1"
+                className="mt-1 text-xs"
               >
                 Retry
               </Button>
             )}
           </div>
         ) : (
-          <div className="text-sm text-primary leading-relaxed break-words">
-            {isUser ? (
-              <p className="whitespace-pre-wrap">{message.content}</p>
-            ) : (
-              <>
-                <MarkdownRenderer
-                  content={message.content}
-                  onCitationClick={onCitationClick}
-                />
-                {isStreaming && (
-                  <span
-                    aria-hidden="true"
-                    className="inline-block w-1.5 h-4 bg-brand-primary ml-1 animate-pulse align-middle"
-                  />
-                )}
-              </>
+          <div className="text-sm text-primary leading-relaxed break-words space-y-2">
+            <MarkdownRenderer
+              content={message.content}
+              onCitationClick={onCitationClick}
+            />
+            {isStreaming && (
+              <span
+                aria-hidden="true"
+                className="inline-block w-1.5 h-4 bg-brand-primary ml-1 animate-pulse align-middle"
+              />
             )}
           </div>
         )}
 
-        {/* Citations Ribbon for Assistant Messages */}
-        {!isUser && !isFailed && citations.length > 0 && (
-          <div className="pt-2 border-t border-subtle/60 mt-3 space-y-1.5">
-            <div className="flex items-center gap-1 text-[11px] font-semibold text-muted uppercase tracking-wider">
+        {/* Sources & Evidence Ribbon beneath response */}
+        {!isFailed && citations.length > 0 && (
+          <div className="pt-3 border-t border-subtle/70 mt-3 space-y-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-muted uppercase tracking-wider">
               <ShieldCheck className="w-3.5 h-3.5 text-brand-primary" />
-              <span>Grounded Evidence ({citations.length})</span>
+              <span>Sources ({citations.length})</span>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -164,9 +174,9 @@ export function MessageBubble({
                     type="button"
                     onClick={() => onCitationClick?.(c.evidenceId || c.chunkId || c.documentId)}
                     title={`Click to view snippet from ${title}`}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-surface-elevated hover:bg-brand-primary/10 hover:text-brand-primary border border-subtle transition-all cursor-pointer select-none text-secondary max-w-[260px] truncate"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-surface hover:bg-brand-primary/10 hover:border-brand-primary/30 border border-subtle transition-all cursor-pointer select-none text-secondary hover:text-primary max-w-[280px] truncate shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary"
                   >
-                    <FileText className="w-3 h-3 shrink-0 text-brand-primary" />
+                    <FileText className="w-3.5 h-3.5 shrink-0 text-brand-primary" />
                     <span className="font-semibold text-brand-primary shrink-0">{label}</span>
                     <span className="truncate">{title}{pageText}</span>
                   </button>
@@ -177,7 +187,7 @@ export function MessageBubble({
         )}
 
         {/* Footer actions for completed assistant messages */}
-        {!isUser && !isStreaming && !isFailed && (
+        {!isStreaming && !isFailed && (
           <div className="flex items-center justify-between pt-2 text-[11px] text-muted">
             <div className="flex items-center gap-3">
               {message.latencyMs !== undefined && message.latencyMs > 0 && (
@@ -197,7 +207,7 @@ export function MessageBubble({
                 onClick={handleCopy}
                 aria-label="Copy response text"
                 title="Copy response"
-                className="p-1.5 rounded-md hover:bg-surface-elevated text-muted hover:text-primary transition-colors flex items-center justify-center min-h-[32px] min-w-[32px]"
+                className="p-1.5 rounded-md hover:bg-surface text-muted hover:text-primary transition-colors flex items-center justify-center min-h-[32px] min-w-[32px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary"
               >
                 {copied ? (
                   <Check className="w-3.5 h-3.5 text-status-success" />

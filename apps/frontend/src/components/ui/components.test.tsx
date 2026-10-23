@@ -56,6 +56,13 @@ describe('Foundational UI Components', () => {
       expect(badge).toBeInTheDocument();
       expect(badge.parentElement).toHaveClass('text-brand-primary');
     });
+
+    it('renders accent badge variant with cyan styling', () => {
+      render(<Badge variant="accent">COPILOT</Badge>);
+      const badge = screen.getByText('COPILOT');
+      expect(badge).toBeInTheDocument();
+      expect(badge.parentElement).toHaveClass('text-brand-accent');
+    });
   });
 
   describe('Card', () => {

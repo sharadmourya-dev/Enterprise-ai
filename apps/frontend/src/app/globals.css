@@ -4,10 +4,10 @@
 
 @layer base {
   :root {
-    /* Light Theme (Default) */
-    --bg-canvas: #f8fafc;
+    /* Light Theme (Clean Neutral & Coordinated Blue Accents) */
+    --bg-canvas: #f8fafd;
     --bg-surface: #ffffff;
-    --bg-surface-elevated: #f1f5f9;
+    --bg-surface-elevated: #f1f5fa;
     --border-subtle: #e2e8f0;
     --border-strong: #cbd5e1;
     --text-primary: #0f172a;
@@ -17,6 +17,7 @@
     /* Semantic Brand & Status Accents */
     --brand-primary: #2563eb;
     --brand-hover: #1d4ed8;
+    --brand-accent: #0891b2;
     --status-success: #059669;
     --status-warning: #d97706;
     --status-error: #dc2626;
@@ -24,12 +25,12 @@
   }
 
   .dark {
-    /* Dark Theme (Obsidian & Slate) */
-    --bg-canvas: #090d16;
-    --bg-surface: #111827;
-    --bg-surface-elevated: #1e293b;
-    --border-subtle: #1e293b;
-    --border-strong: #334155;
+    /* Dark Theme (Deep Navy & Graphite Surfaces with Electric Blue & Restrained Cyan) */
+    --bg-canvas: #0a0f1d;
+    --bg-surface: #111a2e;
+    --bg-surface-elevated: #18243c;
+    --border-subtle: #1f2d47;
+    --border-strong: #2c3b59;
     --text-primary: #f8fafc;
     --text-secondary: #94a3b8;
     --text-muted: #64748b;
@@ -37,6 +38,7 @@
     /* Semantic Brand & Status Accents */
     --brand-primary: #3b82f6;
     --brand-hover: #2563eb;
+    --brand-accent: #06b6d4;
     --status-success: #10b981;
     --status-warning: #f59e0b;
     --status-error: #ef4444;
@@ -48,6 +50,7 @@
   }
 
   body {
+    font-family: var(--font-sans, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
     background-color: var(--bg-canvas);
     color: var(--text-primary);
     font-feature-settings: "rlig" 1, "calt" 1;

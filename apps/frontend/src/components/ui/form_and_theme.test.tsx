@@ -15,6 +15,7 @@ function ThemeConsumer() {
       <span data-testid="resolved-theme">{resolvedTheme}</span>
       <button onClick={() => setTheme('dark')}>Set Dark</button>
       <button onClick={() => setTheme('light')}>Set Light</button>
+      <button onClick={() => setTheme('system')}>Set System</button>
     </div>
   );
 }
@@ -82,6 +83,7 @@ describe('Form Controls, Modal, and Theme', () => {
 
   describe('ThemeProvider', () => {
     beforeEach(() => {
+      localStorage.clear();
       // Mock window.matchMedia
       Object.defineProperty(window, 'matchMedia', {
         writable: true,
@@ -112,6 +114,44 @@ describe('Form Controls, Modal, and Theme', () => {
       });
 
       expect(screen.getByTestId('current-theme')).toHaveTextContent('dark');
+      expect(document.documentElement.classList.contains('dark')).toBe(true);
+      expect(localStorage.getItem('theme')).toBe('dark');
+      expect(document.cookie).toContain('theme=dark');
+
+      act(() => {
+        fireEvent.click(screen.getByText('Set Light'));
+      });
+
+      expect(screen.getByTestId('current-theme')).toHaveTextContent('light');
+      expect(document.documentElement.classList.contains('dark')).toBe(false);
+      expect(localStorage.getItem('theme')).toBe('light');
+      expect(document.cookie).toContain('theme=light');
+    });
+
+    it('resolves system theme based on media query', () => {
+      // Mock dark system theme
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: jest.fn().mockImplementation((query) => ({
+          matches: query === '(prefers-color-scheme: dark)',
+          media: query,
+          onchange: null,
+          addListener: jest.fn(),
+          removeListener: jest.fn(),
+          addEventListener: jest.fn(),
+          removeEventListener: jest.fn(),
+          dispatchEvent: jest.fn(),
+        })),
+      });
+
+      render(
+        <ThemeProvider defaultTheme="system">
+          <ThemeConsumer />
+        </ThemeProvider>
+      );
+
+      expect(screen.getByTestId('current-theme')).toHaveTextContent('system');
+      expect(screen.getByTestId('resolved-theme')).toHaveTextContent('dark');
       expect(document.documentElement.classList.contains('dark')).toBe(true);
     });
   });

@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 export type BadgeVariant =
   | 'default'
   | 'brand'
+  | 'accent'
   | 'success'
   | 'warning'
   | 'error'
@@ -25,6 +26,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
     const variants: Record<BadgeVariant, string> = {
       default: 'bg-surface-elevated text-secondary border-subtle',
       brand: 'bg-brand-primary/10 text-brand-primary border-brand-primary/25',
+      accent: 'bg-brand-accent/10 text-brand-accent border-brand-accent/25',
       success: 'bg-status-success/10 text-status-success border-status-success/25',
       warning: 'bg-status-warning/10 text-status-warning border-status-warning/25',
       error: 'bg-status-error/10 text-status-error border-status-error/25',

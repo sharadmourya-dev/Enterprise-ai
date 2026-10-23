@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   MessageSquare,
   Sparkles,
@@ -9,6 +10,11 @@ import {
   FileText,
   ShieldCheck,
   X,
+  BookOpen,
+  Plus,
+  Layers,
+  ChevronRight,
+  Shield,
 } from 'lucide-react';
 import {
   IConversation,
@@ -23,19 +29,26 @@ import {
   ChatComposer,
   CitationDrawer,
   CitationItem,
+  RelevantDocumentsPanel,
 } from '@/components/chat';
 import { ApiClient } from '@/lib/api-client';
 import { streamChatMessage } from '@/lib/chat-stream';
-import { Button, Card, useToast } from '@/components/ui';
+import { Button, Card, Badge, Skeleton, useToast } from '@/components/ui';
+import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
 
 const SUGGESTED_PROMPTS = [
-  'Summarize our corporate data retention and access policies.',
-  'What are the standard incident response protocols for priority outages?',
-  'Explain the clearance requirements for viewing confidential documents.',
+  'Summarize our corporate onboarding process and key requirements.',
+  'What are the standard IT security standards and password policies?',
+  'How do I apply for annual leave or submit expense claims?',
+  'Explain the clearance requirements for viewing restricted documents.',
 ];
 
-export default function ChatPage() {
+function ChatContent() {
+  const searchParams = useSearchParams();
+  const { user, isAdmin, clearance } = useAuth();
+  const { error: showErrorToast, info: showInfoToast, success: showSuccessToast } = useToast();
+
   const [conversations, setConversations] = useState<IConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<IMessage[]>([]);
@@ -58,8 +71,12 @@ export default function ChatPage() {
   const [selectedCitationId, setSelectedCitationId] = useState<string | null>(null);
   const [drawerCitations, setDrawerCitations] = useState<CitationItem[]>([]);
 
-  // Mobile conversation drawer state
+  // Panels visibility (Responsive strategy)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [documentsPanelOpen, setDocumentsPanelOpen] = useState(true);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const queryHandledRef = useRef(false);
 
   // Close mobile conversation history drawer on Escape key press
   useEffect(() => {
@@ -73,9 +90,6 @@ export default function ChatPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [mobileSidebarOpen]);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { error: showErrorToast, info: showInfoToast } = useToast();
-
   // Scroll smoothly to bottom when messages or streaming content changes
   const scrollToBottom = useCallback((smooth = true) => {
     messagesEndRef.current?.scrollIntoView({
@@ -88,7 +102,7 @@ export default function ChatPage() {
     scrollToBottom(true);
   }, [messages, streamingContent, streamingStage, scrollToBottom]);
 
-  // Load user conversations on initial mount
+  // Load user conversations when user is authenticated
   const loadConversations = useCallback(async () => {
     setIsLoadingConversations(true);
     try {
@@ -97,8 +111,8 @@ export default function ChatPage() {
       setConversations(list);
 
       // Select first conversation if none selected
-      if (list.length > 0 && !activeConversationId) {
-        setActiveConversationId(list[0].id);
+      if (list.length > 0) {
+        setActiveConversationId((prev) => prev || list[0].id);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load conversations';
@@ -106,11 +120,23 @@ export default function ChatPage() {
     } finally {
       setIsLoadingConversations(false);
     }
-  }, [activeConversationId, showErrorToast]);
+  }, [showErrorToast]);
 
   useEffect(() => {
-    loadConversations();
-  }, [loadConversations]);
+    if (user) {
+      loadConversations();
+    }
+  }, [user, loadConversations]);
+
+  // Handle URL query prefill (e.g. /chat?q=How%20do%20I%20apply%20for%20leave%3F)
+  useEffect(() => {
+    if (queryHandledRef.current) return;
+    const qParam = searchParams.get('q') || searchParams.get('query');
+    if (qParam && qParam.trim()) {
+      setComposerText(qParam.trim());
+      queryHandledRef.current = true;
+    }
+  }, [searchParams]);
 
   // Load message history when active conversation changes
   const loadMessages = useCallback(async (conversationId: string) => {
@@ -150,6 +176,7 @@ export default function ChatPage() {
       setMobileSidebarOpen(false);
       setComposerText('');
       setStreamingError(null);
+      showSuccessToast('Started new conversation', 'New Chat');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to create conversation';
       showErrorToast(msg, 'Creation Error');
@@ -184,7 +211,6 @@ export default function ChatPage() {
     setIsStreaming(false);
     setStreamingStage(null);
 
-    // If partial content was received before cancel, finalize it
     if (streamingContent && activeConversationId) {
       const partialMsg: IMessage = {
         id: `cancelled-${Date.now()}`,
@@ -209,7 +235,6 @@ export default function ChatPage() {
 
     let targetConvId = activeConversationId;
 
-    // Automatically create conversation if none exists
     if (!targetConvId) {
       try {
         const newConv = await ApiClient.post<IConversation>('/api/v1/conversations', {
@@ -225,10 +250,7 @@ export default function ChatPage() {
       }
     }
 
-    // Explicit runtime guard guarantees targetConvId is non-null string
-    if (!targetConvId) {
-      return;
-    }
+    if (!targetConvId) return;
 
     const userMsg: IMessage = {
       id: `temp-user-${Date.now()}`,
@@ -293,8 +315,6 @@ export default function ChatPage() {
             setStreamingContent('');
             setStreamingCitations([]);
             activeAbortController.current = null;
-
-            // Update conversation title in sidebar if updated
             loadConversations();
           },
           onError: (err) => {
@@ -317,9 +337,7 @@ export default function ChatPage() {
         },
       });
     } catch (err: unknown) {
-      if (controller.signal.aborted) {
-        return;
-      }
+      if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : 'Streaming encountered an error';
       setStreamingError(msg);
       setIsStreaming(false);
@@ -334,12 +352,30 @@ export default function ChatPage() {
     setCitationDrawerOpen(true);
   };
 
+  // Active Citations to display in the Right Relevant Documents Panel:
+  // Derived from the active streaming citations or the most recent assistant message citations
+  const activeRelevantCitations: CitationItem[] = useMemo(() => {
+    if (isStreaming && streamingCitations.length > 0) {
+      return streamingCitations as unknown as CitationItem[];
+    }
+    // Search messages backwards for the latest assistant message with citations
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.sender === MessageSender.ASSISTANT && msg.citations && msg.citations.length > 0) {
+        return msg.citations as unknown as CitationItem[];
+      }
+    }
+    return [];
+  }, [isStreaming, streamingCitations, messages]);
+
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
   return (
     <AppShell className="p-0 sm:p-0 lg:p-0 max-w-full">
       <div className="flex h-[calc(100vh-4rem)] bg-canvas overflow-hidden">
-        {/* Desktop Left Conversations Sidebar (visible >= 1024px) */}
+        {/* ========================================================= */}
+        {/* PANEL A: Left Conversations Sidebar (Desktop >= 1024px)   */}
+        {/* ========================================================= */}
         <div className="hidden lg:block w-72 shrink-0 h-full">
           <ConversationSidebar
             conversations={conversations}
@@ -396,9 +432,11 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* Center Main Chat Panel */}
+        {/* ========================================================= */}
+        {/* PANEL B: Center Main Chat Workspace                       */}
+        {/* ========================================================= */}
         <div className="flex-1 flex flex-col min-w-0 h-full relative">
-          {/* Chat Header */}
+          {/* Compact Top Toolbar */}
           <div className="h-14 px-4 sm:px-6 border-b border-subtle bg-surface flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
               <button
@@ -410,7 +448,7 @@ export default function ChatPage() {
                 <History className="w-5 h-5" />
               </button>
 
-              <div className="w-7 h-7 rounded-lg bg-brand-primary/10 text-brand-primary flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-brand-primary/10 text-brand-primary flex items-center justify-center shrink-0">
                 <MessageSquare className="w-4 h-4" />
               </div>
 
@@ -429,6 +467,28 @@ export default function ChatPage() {
                 <span className="w-1.5 h-1.5 rounded-full bg-status-success animate-pulse" />
                 Ready
               </span>
+
+              {/* Toggle Right Relevant Documents Panel */}
+              <button
+                type="button"
+                onClick={() => setDocumentsPanelOpen(!documentsPanelOpen)}
+                title={documentsPanelOpen ? 'Hide relevant documents' : 'Show relevant documents'}
+                aria-label={documentsPanelOpen ? 'Hide relevant documents' : 'Show relevant documents'}
+                className={cn(
+                  'p-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+                  documentsPanelOpen
+                    ? 'border-brand-primary/30 bg-brand-primary/10 text-brand-primary'
+                    : 'border-subtle bg-surface text-secondary hover:text-primary hover:bg-surface-elevated'
+                )}
+              >
+                <BookOpen className="w-4 h-4 shrink-0" />
+                <span className="hidden md:inline">Sources</span>
+                {activeRelevantCitations.length > 0 && (
+                  <Badge variant="brand" size="sm" className="ml-0.5">
+                    {activeRelevantCitations.length}
+                  </Badge>
+                )}
+              </button>
             </div>
           </div>
 
@@ -436,19 +496,19 @@ export default function ChatPage() {
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 max-w-4xl w-full mx-auto">
             {isLoadingMessages ? (
               <div className="space-y-4 py-8">
-                <div className="h-16 w-3/4 rounded-xl bg-surface-elevated animate-pulse ml-auto" />
-                <div className="h-32 w-5/6 rounded-xl bg-surface-elevated animate-pulse" />
-                <div className="h-16 w-2/3 rounded-xl bg-surface-elevated animate-pulse ml-auto" />
+                <div className="h-16 w-3/4 rounded-2xl bg-surface-elevated animate-pulse ml-auto" />
+                <div className="h-32 w-5/6 rounded-2xl bg-surface-elevated animate-pulse" />
+                <div className="h-16 w-2/3 rounded-2xl bg-surface-elevated animate-pulse ml-auto" />
               </div>
             ) : messages.length === 0 && !isStreaming ? (
               /* Empty Conversation Welcome State */
-              <div className="text-center py-12 sm:py-16 space-y-6 max-w-xl mx-auto">
-                <div className="w-12 h-12 rounded-2xl bg-brand-primary/10 text-brand-primary flex items-center justify-center mx-auto shadow-xs">
+              <div className="text-center py-10 sm:py-14 space-y-6 max-w-xl mx-auto">
+                <div className="w-12 h-12 rounded-2xl bg-brand-primary text-white flex items-center justify-center mx-auto shadow-md shadow-brand-primary/20">
                   <Sparkles className="w-6 h-6" />
                 </div>
 
                 <div className="space-y-2">
-                  <h2 className="text-lg font-bold text-primary tracking-tight">
+                  <h2 className="text-xl font-bold text-primary tracking-tight">
                     Enterprise Knowledge &amp; Support Copilot
                   </h2>
                   <p className="text-xs text-secondary leading-relaxed">
@@ -456,9 +516,15 @@ export default function ChatPage() {
                   </p>
                 </div>
 
-                {/* Suggested Prompts */}
-                <div className="space-y-2 pt-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted block text-left sm:text-center">
+                {/* Clearance Status Pill */}
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-subtle bg-surface text-xs text-secondary">
+                  <ShieldCheck className="w-4 h-4 text-brand-primary" />
+                  <span>Authorized Clearance: <strong className="text-brand-primary font-semibold">{clearance || 'INTERNAL'}</strong></span>
+                </div>
+
+                {/* Suggested Inquiries */}
+                <div className="space-y-2 pt-2 text-left">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted block text-center">
                     Suggested Inquiries
                   </span>
                   <div className="space-y-2">
@@ -470,7 +536,7 @@ export default function ChatPage() {
                           setComposerText(prompt);
                           handleSendMessage(prompt);
                         }}
-                        className="w-full text-left p-3 rounded-xl border border-subtle bg-surface hover:bg-surface-elevated hover:border-brand-primary/40 transition-all text-xs text-secondary hover:text-primary flex items-center justify-between group shadow-xs"
+                        className="w-full text-left p-3 rounded-xl border border-subtle bg-surface hover:bg-surface-elevated hover:border-brand-primary/40 transition-all text-xs text-secondary hover:text-primary flex items-center justify-between group shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                       >
                         <span className="truncate pr-3">{prompt}</span>
                         <Sparkles className="w-3.5 h-3.5 text-muted group-hover:text-brand-primary shrink-0 transition-colors" />
@@ -490,7 +556,6 @@ export default function ChatPage() {
                       handleOpenCitation(citId, (msg.citations as unknown as CitationItem[]) || [])
                     }
                     onRetry={() => {
-                      // Find preceding user message and retry
                       const prevMsg = messages[idx - 1];
                       if (prevMsg && prevMsg.sender === MessageSender.USER) {
                         handleSendMessage(prevMsg.content);
@@ -536,10 +601,33 @@ export default function ChatPage() {
                 onCancel={handleCancelGeneration}
                 isStreaming={isStreaming}
                 disabled={isLoadingMessages}
+                placeholder={
+                  isAdmin
+                    ? 'Ask anything about your company knowledge...'
+                    : 'Ask anything about company policies...'
+                }
               />
             </div>
           </div>
         </div>
+
+        {/* ========================================================= */}
+        {/* PANEL C: Right Relevant Documents Panel (xl+ screens)     */}
+        {/* ========================================================= */}
+        {documentsPanelOpen && (
+          <div className="hidden xl:block w-80 shrink-0 h-full">
+            <RelevantDocumentsPanel
+              citations={activeRelevantCitations}
+              selectedCitationId={selectedCitationId}
+              onSelectCitation={(citId) => {
+                setSelectedCitationId(citId);
+                setDrawerCitations(activeRelevantCitations);
+                setCitationDrawerOpen(true);
+              }}
+              onClose={() => setDocumentsPanelOpen(false)}
+            />
+          </div>
+        )}
 
         {/* Source Citation Details Drawer */}
         <CitationDrawer
@@ -551,5 +639,21 @@ export default function ChatPage() {
         />
       </div>
     </AppShell>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell className="p-0 sm:p-0 lg:p-0 max-w-full">
+          <div className="flex h-[calc(100vh-4rem)] bg-canvas items-center justify-center">
+            <Skeleton className="h-12 w-48 rounded-xl" />
+          </div>
+        </AppShell>
+      }
+    >
+      <ChatContent />
+    </Suspense>
   );
 }

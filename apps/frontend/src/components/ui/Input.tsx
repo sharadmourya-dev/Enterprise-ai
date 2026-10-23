@@ -64,8 +64,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               'w-full h-11 px-3.5 rounded-lg border bg-surface text-primary text-sm placeholder:text-muted transition-colors duration-150',
               'focus:outline-none focus:ring-2',
               error
-                ? 'border-status-error focus:border-status-error focus:ring-status-error/20'
-                : 'border-subtle hover:border-strong focus:border-brand-primary focus:ring-brand-primary/20',
+                ? 'border-status-error focus:border-status-error focus:ring-status-error/25'
+                : 'border-subtle hover:border-strong focus:border-brand-primary focus:ring-brand-primary/25',
               leftIcon && 'pl-10',
               rightIcon && 'pr-10',
               disabled && 'opacity-50 cursor-not-allowed bg-surface-elevated',

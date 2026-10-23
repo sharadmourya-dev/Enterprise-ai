@@ -13,7 +13,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
       default: 'bg-surface border-subtle shadow-xs',
       elevated: 'bg-surface-elevated border-subtle shadow-xs',
       interactive:
-        'bg-surface border-subtle hover:border-strong hover:shadow-sm cursor-pointer transition-all duration-150',
+        'bg-surface border-subtle hover:border-brand-primary/40 hover:shadow-sm hover:-translate-y-0.5 cursor-pointer transition-all duration-150',
     };
 
     return (

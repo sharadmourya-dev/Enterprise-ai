@@ -72,7 +72,7 @@ export function Modal({
     <div
       ref={overlayRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? 'modal-title' : undefined}
@@ -81,7 +81,7 @@ export function Modal({
       <div
         ref={contentRef}
         className={cn(
-          'relative w-full rounded-2xl bg-surface border border-subtle shadow-xl overflow-hidden animate-slide-down',
+          'relative w-full rounded-2xl bg-surface border border-subtle shadow-2xl overflow-hidden animate-slide-down',
           sizes[size]
         )}
       >

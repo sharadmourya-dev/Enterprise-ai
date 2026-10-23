@@ -7,6 +7,7 @@ import { FeedbackButtons } from './FeedbackButtons';
 import { ChatComposer } from './ChatComposer';
 import { ConversationSidebar } from './ConversationSidebar';
 import { MessageBubble } from './MessageBubble';
+import { RelevantDocumentsPanel } from './RelevantDocumentsPanel';
 import { ToastProvider } from '@/components/ui';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import { ApiClient } from '@/lib/api-client';
@@ -432,6 +433,60 @@ describe('Chat UI Components & Interactions', () => {
       expect(screen.getByText('gpt-4o')).toBeInTheDocument();
       expect(screen.getByText('1.20s')).toBeInTheDocument();
       expect(screen.getByText('75 tokens')).toBeInTheDocument();
+    });
+  });
+
+  describe('RelevantDocumentsPanel', () => {
+    const mockCitations: CitationItem[] = [
+      {
+        evidenceId: 'S1',
+        documentId: 'doc-1',
+        title: 'HR Onboarding Process.pdf',
+        chunkId: 'chk-1',
+        page: 4,
+        snippet: 'Submit completed tax declaration and benefits form.',
+      },
+      {
+        evidenceId: 'S2',
+        documentId: 'doc-2',
+        title: 'IT Access Policy.docx',
+        chunkId: 'chk-2',
+        page: 6,
+        snippet: 'VPN keys rotate every 30 calendar days.',
+      },
+    ];
+
+    it('renders empty state when citations array is empty', () => {
+      render(
+        <RelevantDocumentsPanel
+          citations={[]}
+          onSelectCitation={jest.fn()}
+        />
+      );
+
+      expect(screen.getByText('Relevant Documents')).toBeInTheDocument();
+      expect(screen.getByText('No sources cited yet')).toBeInTheDocument();
+    });
+
+    it('renders unique document cards with page indicators and triggers onSelectCitation', () => {
+      const onSelect = jest.fn();
+      render(
+        <RelevantDocumentsPanel
+          citations={mockCitations}
+          onSelectCitation={onSelect}
+        />
+      );
+
+      expect(screen.getByText('HR Onboarding Process.pdf')).toBeInTheDocument();
+      expect(screen.getByText('Page 4')).toBeInTheDocument();
+      expect(screen.getByText('IT Access Policy.docx')).toBeInTheDocument();
+      expect(screen.getByText('Page 6')).toBeInTheDocument();
+
+      const docBtn = screen.getByText('HR Onboarding Process.pdf').closest('button');
+      expect(docBtn).not.toBeNull();
+      fireEvent.click(docBtn!);
+
+      expect(onSelect).toHaveBeenCalledWith('S1');
     });
   });
 });

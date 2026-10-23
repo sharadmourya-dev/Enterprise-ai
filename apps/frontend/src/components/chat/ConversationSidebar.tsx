@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   MessageSquare,
   Plus,
@@ -8,6 +8,7 @@ import {
   Search,
   AlertTriangle,
   FolderOpen,
+  Calendar,
 } from 'lucide-react';
 import { IConversation } from '@enterprise-ai/shared-types';
 import { Button, Modal, Skeleton } from '@/components/ui';
@@ -24,6 +25,13 @@ export interface ConversationSidebarProps {
   className?: string;
 }
 
+interface GroupedConversations {
+  today: IConversation[];
+  yesterday: IConversation[];
+  previous7Days: IConversation[];
+  older: IConversation[];
+}
+
 export function ConversationSidebar({
   conversations,
   activeConversationId,
@@ -38,9 +46,41 @@ export function ConversationSidebar({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const filteredConversations = conversations.filter((c) =>
-    c.title.toLowerCase().includes(searchQuery.toLowerCase().trim())
-  );
+  const filteredConversations = useMemo(() => {
+    return conversations.filter((c) =>
+      c.title.toLowerCase().includes(searchQuery.toLowerCase().trim())
+    );
+  }, [conversations, searchQuery]);
+
+  // Group conversations chronologically into Today, Yesterday, Previous 7 days, Older
+  const grouped = useMemo<GroupedConversations>(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+    const sevenDaysAgoStart = todayStart - 7 * 24 * 60 * 60 * 1000;
+
+    const res: GroupedConversations = {
+      today: [],
+      yesterday: [],
+      previous7Days: [],
+      older: [],
+    };
+
+    filteredConversations.forEach((c) => {
+      const time = new Date(c.updatedAt || c.createdAt).getTime();
+      if (time >= todayStart) {
+        res.today.push(c);
+      } else if (time >= yesterdayStart) {
+        res.yesterday.push(c);
+      } else if (time >= sevenDaysAgoStart) {
+        res.previous7Days.push(c);
+      } else {
+        res.older.push(c);
+      }
+    });
+
+    return res;
+  }, [filteredConversations]);
 
   const conversationToDelete = conversations.find((c) => c.id === deletingId);
 
@@ -55,19 +95,88 @@ export function ConversationSidebar({
     }
   };
 
+  const renderConversationItem = (c: IConversation) => {
+    const isActive = c.id === activeConversationId;
+    return (
+      <div
+        key={c.id}
+        role="button"
+        tabIndex={0}
+        aria-pressed={isActive}
+        data-conversation-id={c.id}
+        className={cn(
+          'group flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all duration-150 select-none min-h-[38px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary',
+          isActive
+            ? 'bg-brand-primary text-white shadow-xs font-semibold'
+            : 'text-secondary hover:text-primary hover:bg-surface-elevated'
+        )}
+        onClick={() => onSelectConversation(c.id)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelectConversation(c.id);
+          }
+        }}
+      >
+        <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-1.5">
+          <MessageSquare
+            className={cn(
+              'w-3.5 h-3.5 shrink-0 transition-colors',
+              isActive ? 'text-white' : 'text-muted group-hover:text-primary'
+            )}
+          />
+          <span className="truncate leading-tight">{c.title || 'Untitled Conversation'}</span>
+        </div>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setDeletingId(c.id);
+          }}
+          aria-label={`Delete conversation: ${c.title}`}
+          title="Delete conversation"
+          className={cn(
+            'opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded-md transition-all shrink-0 min-h-[28px] min-w-[28px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary',
+            isActive
+              ? 'hover:bg-white/20 text-white/80 hover:text-white'
+              : 'hover:bg-surface hover:text-status-error text-muted'
+          )}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    );
+  };
+
+  const renderGroup = (label: string, items: IConversation[]) => {
+    if (items.length === 0) return null;
+    return (
+      <div className="space-y-1 mb-3">
+        <div className="px-3 py-1 text-[11px] font-semibold text-muted uppercase tracking-wider">
+          {label}
+        </div>
+        <div className="space-y-0.5">
+          {items.map(renderConversationItem)}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className={cn('flex flex-col h-full bg-surface border-r border-subtle select-none', className)}>
-      {/* Header with New Chat CTA */}
-      <div className="p-3.5 border-b border-subtle space-y-3">
+      {/* Header with New Chat CTA & Search */}
+      <div className="p-3 border-b border-subtle space-y-2.5 shrink-0">
         <Button
           variant="primary"
           size="sm"
-          className="w-full justify-center min-h-[40px] font-semibold"
+          className="w-full justify-center min-h-[40px] font-semibold text-xs shadow-sm bg-brand-primary hover:bg-brand-primary/90 text-white"
           leftIcon={<Plus className="w-4 h-4" />}
           onClick={onCreateConversation}
           isLoading={isCreating}
+          aria-label="New Conversation"
         >
-          New Conversation
+          New Chat
         </Button>
 
         {/* Search Filter */}
@@ -77,21 +186,21 @@ export function ConversationSidebar({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter conversations..."
+            placeholder="Search & filter conversations..."
             aria-label="Filter conversations"
-            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-subtle bg-surface-elevated text-primary placeholder:text-muted outline-none focus:ring-1 focus:ring-brand-primary"
+            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-subtle bg-surface-elevated text-primary placeholder:text-muted outline-none focus:ring-1 focus:ring-brand-primary transition-all"
           />
         </div>
       </div>
 
-      {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      {/* Conversations List with Date Grouping */}
+      <div className="flex-1 overflow-y-auto p-2">
         {isLoading ? (
           <div className="space-y-2 p-2">
-            <Skeleton className="h-10 w-full rounded-lg" />
-            <Skeleton className="h-10 w-full rounded-lg" />
-            <Skeleton className="h-10 w-full rounded-lg" />
-            <Skeleton className="h-10 w-full rounded-lg" />
+            <Skeleton className="h-9 w-full rounded-lg" />
+            <Skeleton className="h-9 w-full rounded-lg" />
+            <Skeleton className="h-9 w-full rounded-lg" />
+            <Skeleton className="h-9 w-full rounded-lg" />
           </div>
         ) : filteredConversations.length === 0 ? (
           <div className="text-center py-10 px-4 text-xs text-muted space-y-2">
@@ -100,53 +209,22 @@ export function ConversationSidebar({
               {searchQuery ? 'No matching conversations found' : 'No previous conversations yet'}
             </p>
           </div>
+        ) : searchQuery.trim() ? (
+          // When filtering, render flat list of matching items
+          <div className="space-y-0.5">
+            <div className="px-3 py-1 text-[11px] font-semibold text-muted uppercase tracking-wider">
+              Search Results ({filteredConversations.length})
+            </div>
+            {filteredConversations.map(renderConversationItem)}
+          </div>
         ) : (
-          filteredConversations.map((c) => {
-            const isActive = c.id === activeConversationId;
-            return (
-              <div
-                key={c.id}
-                className={cn(
-                  'group flex items-center justify-between p-2.5 rounded-lg text-xs font-medium cursor-pointer transition-all duration-150',
-                  isActive
-                    ? 'bg-brand-primary/10 text-brand-primary font-semibold'
-                    : 'text-secondary hover:text-primary hover:bg-surface-elevated'
-                )}
-                onClick={() => onSelectConversation(c.id)}
-              >
-                <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
-                  <MessageSquare
-                    className={cn(
-                      'w-4 h-4 shrink-0 transition-colors',
-                      isActive ? 'text-brand-primary' : 'text-muted group-hover:text-primary'
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate leading-tight">{c.title || 'Untitled Conversation'}</p>
-                    <p className="text-[10px] text-muted truncate mt-0.5 font-normal">
-                      {new Date(c.updatedAt).toLocaleDateString([], {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeletingId(c.id);
-                  }}
-                  aria-label={`Delete conversation: ${c.title}`}
-                  title="Delete conversation"
-                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 rounded-md hover:bg-surface hover:text-status-error text-muted transition-all min-h-[32px] min-w-[32px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            );
-          })
+          // Grouped sections matching reference UI board: Today, Yesterday, Previous 7 days, Older
+          <div>
+            {renderGroup('Today', grouped.today)}
+            {renderGroup('Yesterday', grouped.yesterday)}
+            {renderGroup('Previous 7 days', grouped.previous7Days)}
+            {renderGroup('Older', grouped.older)}
+          </div>
         )}
       </div>
 

@@ -10,16 +10,28 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Direct semantic tokens for streamlined utility classes
+        primary: 'var(--text-primary)',
+        secondary: 'var(--text-secondary)',
+        muted: 'var(--text-muted)',
+        subtle: 'var(--border-subtle)',
+        strong: 'var(--border-strong)',
+
+        // Surface and canvas tokens
         canvas: 'var(--bg-canvas)',
         surface: {
           DEFAULT: 'var(--bg-surface)',
           elevated: 'var(--bg-surface-elevated)',
         },
+
+        // Backward-compatible nested tokens
         border: {
+          DEFAULT: 'var(--border-subtle)',
           subtle: 'var(--border-subtle)',
           strong: 'var(--border-strong)',
         },
         text: {
+          DEFAULT: 'var(--text-primary)',
           primary: 'var(--text-primary)',
           secondary: 'var(--text-secondary)',
           muted: 'var(--text-muted)',
@@ -27,6 +39,7 @@ const config: Config = {
         brand: {
           primary: 'var(--brand-primary)',
           hover: 'var(--brand-hover)',
+          accent: 'var(--brand-accent)',
         },
         status: {
           success: 'var(--status-success)',
@@ -35,8 +48,12 @@ const config: Config = {
           info: 'var(--status-info)',
         },
       },
+      boxShadow: {
+        xs: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+        glow: '0 0 15px -3px rgba(37, 99, 235, 0.3)',
+      },
       fontFamily: {
-        sans: ['var(--font-sans)', 'Inter', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-sans)', 'Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'sans-serif'],
         mono: ['var(--font-mono)', 'JetBrains Mono', 'monospace'],
       },
       animation: {
