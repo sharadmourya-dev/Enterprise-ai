@@ -15,5 +15,6 @@ module.exports = {
     '<rootDir>/tests/admin-promote.test.ts',
     '<rootDir>/tests/llm.test.ts',
     '<rootDir>/tests/llm-fallback.test.ts',
+    '<rootDir>/tests/server-lifecycle.test.ts',
   ],
 };

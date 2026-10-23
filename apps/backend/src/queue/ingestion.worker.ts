@@ -14,6 +14,7 @@ import logger from '../utils/logger.js';
 
 export class IngestionWorker {
   private workerInstance: Worker<IIngestionJobPayload> | null = null;
+  private isReady = false;
 
   /**
    * Processes a single document ingestion job
@@ -290,16 +291,18 @@ export class IngestionWorker {
   }
 
   /**
-   * Starts the BullMQ worker instance
+   * Starts the BullMQ worker instance and waits for the underlying Redis
+   * connection/backend readiness signal before resolving.
+   * Cleans up all resources if readiness or connection fails.
    */
-  public start(concurrency = 5): void {
+  public async start(concurrency = 5): Promise<void> {
     if (this.workerInstance) {
       return;
     }
 
     const connection = getRedisConnection();
 
-    this.workerInstance = new Worker<IIngestionJobPayload>(
+    const worker = new Worker<IIngestionJobPayload>(
       INGESTION_QUEUE_NAME,
       async (job) => {
         await IngestionWorker.processJob(job);
@@ -310,22 +313,46 @@ export class IngestionWorker {
       }
     );
 
-    this.workerInstance.on('completed', (job) => {
+    worker.on('error', (err) => {
+      logger.error('BullMQ ingestion worker runtime error', { error: err.message });
+    });
+
+    worker.on('completed', (job) => {
       logger.info(`Job ${job.id} completed successfully for document ${job.data.documentId}`);
     });
 
-    this.workerInstance.on('failed', (job, err) => {
+    worker.on('failed', (job, err) => {
       logger.error(`Job ${job?.id} failed for document ${job?.data.documentId}`, { error: err.message });
     });
+
+    this.workerInstance = worker;
+
+    try {
+      await worker.waitUntilReady();
+      this.isReady = true;
+    } catch (readinessErr: unknown) {
+      this.isReady = false;
+      await this.stop();
+      throw readinessErr;
+    }
+  }
+
+  /**
+   * Returns whether the worker instance is currently initialized and ready to consume jobs
+   */
+  public isRunning(): boolean {
+    return this.workerInstance !== null && this.isReady;
   }
 
   /**
    * Shuts down worker gracefully
    */
   public async stop(): Promise<void> {
+    this.isReady = false;
     if (this.workerInstance) {
-      await this.workerInstance.close();
+      const worker = this.workerInstance;
       this.workerInstance = null;
+      await worker.close();
     }
   }
 }

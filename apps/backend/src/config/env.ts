@@ -91,6 +91,8 @@ export const envSchema = z
     RAG_SIMILARITY_THRESHOLD: z.coerce.number().default(0.65),
     MAX_FILE_SIZE_BYTES: z.coerce.number().default(52428800),
     UPLOAD_STORAGE_PATH: z.string().default('./data/uploads'),
+    EMBEDDED_WORKER_ENABLED: booleanEnv(false),
+    INGESTION_WORKER_CONCURRENCY: z.coerce.number().min(1).max(5).default(1),
 
     // Storage Driver & Cloudinary
     STORAGE_DRIVER: z.enum(['local', 'cloudinary']).default('local'),

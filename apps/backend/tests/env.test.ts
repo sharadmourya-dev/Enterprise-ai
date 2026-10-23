@@ -116,7 +116,7 @@ describe('Boolean Environment Variable Parser (booleanEnv)', () => {
   });
 });
 
-describe('Feature Flag Schema Bindings (REDIS_TLS, RAG_CACHE_ENABLED, RATE_LIMIT_ENABLED)', () => {
+describe('Feature Flag Schema Bindings (REDIS_TLS, RAG_CACHE_ENABLED, RATE_LIMIT_ENABLED, EMBEDDED_WORKER_ENABLED)', () => {
   const minimalDevEnv: Record<string, string> = {
     NODE_ENV: 'development',
   };
@@ -126,6 +126,8 @@ describe('Feature Flag Schema Bindings (REDIS_TLS, RAG_CACHE_ENABLED, RATE_LIMIT
     expect(config.REDIS_TLS).toBe(false);
     expect(config.RAG_CACHE_ENABLED).toBe(true);
     expect(config.RATE_LIMIT_ENABLED).toBe(true);
+    expect(config.EMBEDDED_WORKER_ENABLED).toBe(false);
+    expect(config.INGESTION_WORKER_CONCURRENCY).toBe(1);
   });
 
   it('correctly disables flags when explicitly set to "false" or "0"', () => {
@@ -133,9 +135,11 @@ describe('Feature Flag Schema Bindings (REDIS_TLS, RAG_CACHE_ENABLED, RATE_LIMIT
       ...minimalDevEnv,
       RAG_CACHE_ENABLED: 'false',
       RATE_LIMIT_ENABLED: '0',
+      EMBEDDED_WORKER_ENABLED: 'false',
     });
     expect(config.RAG_CACHE_ENABLED).toBe(false);
     expect(config.RATE_LIMIT_ENABLED).toBe(false);
+    expect(config.EMBEDDED_WORKER_ENABLED).toBe(false);
   });
 
   it('correctly enables flags when explicitly set to "true" or "1"', () => {
@@ -144,10 +148,14 @@ describe('Feature Flag Schema Bindings (REDIS_TLS, RAG_CACHE_ENABLED, RATE_LIMIT
       REDIS_TLS: 'true',
       RAG_CACHE_ENABLED: '1',
       RATE_LIMIT_ENABLED: 'true',
+      EMBEDDED_WORKER_ENABLED: '1',
+      INGESTION_WORKER_CONCURRENCY: '3',
     });
     expect(config.REDIS_TLS).toBe(true);
     expect(config.RAG_CACHE_ENABLED).toBe(true);
     expect(config.RATE_LIMIT_ENABLED).toBe(true);
+    expect(config.EMBEDDED_WORKER_ENABLED).toBe(true);
+    expect(config.INGESTION_WORKER_CONCURRENCY).toBe(3);
   });
 
   it('rejects startup when invalid string is passed to feature flags', () => {
@@ -171,6 +179,39 @@ describe('Feature Flag Schema Bindings (REDIS_TLS, RAG_CACHE_ENABLED, RATE_LIMIT
         REDIS_TLS: 'enabled',
       })
     ).toThrow(/Must be a valid boolean representation/);
+
+    expect(() =>
+      validateEnv({
+        ...minimalDevEnv,
+        EMBEDDED_WORKER_ENABLED: 'yes',
+      })
+    ).toThrow(/Must be a valid boolean representation/);
+  });
+
+  it('validates INGESTION_WORKER_CONCURRENCY range and rejects out-of-bounds or non-numeric values', () => {
+    expect(validateEnv({ ...minimalDevEnv, INGESTION_WORKER_CONCURRENCY: '1' }).INGESTION_WORKER_CONCURRENCY).toBe(1);
+    expect(validateEnv({ ...minimalDevEnv, INGESTION_WORKER_CONCURRENCY: '5' }).INGESTION_WORKER_CONCURRENCY).toBe(5);
+
+    expect(() =>
+      validateEnv({
+        ...minimalDevEnv,
+        INGESTION_WORKER_CONCURRENCY: '0',
+      })
+    ).toThrow(/Number must be greater than or equal to 1/);
+
+    expect(() =>
+      validateEnv({
+        ...minimalDevEnv,
+        INGESTION_WORKER_CONCURRENCY: '6',
+      })
+    ).toThrow(/Number must be less than or equal to 5/);
+
+    expect(() =>
+      validateEnv({
+        ...minimalDevEnv,
+        INGESTION_WORKER_CONCURRENCY: 'invalid',
+      })
+    ).toThrow(/Expected number/);
   });
 });
 

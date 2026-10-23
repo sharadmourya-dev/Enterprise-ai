@@ -9,7 +9,7 @@ async function bootstrapWorker() {
   await connectDatabase();
 
   const worker = new IngestionWorker();
-  worker.start(5);
+  await worker.start(5);
 
   logger.info('Ingestion Worker is active and listening for BullMQ document jobs.');
 
