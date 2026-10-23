@@ -103,19 +103,11 @@ describe('Ingestion Pipeline & Vector Indexing Integration Tests', () => {
       with_vector: true,
     });
 
-    // Note: If QDRANT_COLLECTION_NAME in env is different from TEST_COLLECTION,
-    // worker uses env.QDRANT_COLLECTION_NAME. Let's verify points in that collection:
-    const defaultCollection = process.env.QDRANT_COLLECTION_NAME || 'enterprise_knowledge_chunks';
-    const pointsInDefault = await client.retrieve(defaultCollection, {
-      ids: [chunks[0].vectorId],
-      with_payload: true,
-    });
-
-    expect(pointsInDefault.length).toBe(1);
-    expect(pointsInDefault[0].payload?.document_id).toBe(doc._id.toString());
-    expect(pointsInDefault[0].payload?.minimum_clearance_level).toBe(1); // INTERNAL
-    expect(pointsInDefault[0].payload?.allowed_departments).toEqual(['Engineering']);
-    expect(pointsInDefault[0].payload?.is_active).toBe(true);
+    expect(qdrantPoints.length).toBe(1);
+    expect(qdrantPoints[0].payload?.document_id).toBe(doc._id.toString());
+    expect(qdrantPoints[0].payload?.minimum_clearance_level).toBe(1); // INTERNAL
+    expect(qdrantPoints[0].payload?.allowed_departments).toEqual(['Engineering']);
+    expect(qdrantPoints[0].payload?.is_active).toBe(true);
   });
 
   it('2. Repeated processing (re-indexing) is idempotent and does not create duplicate chunks or vectors', async () => {
@@ -463,8 +455,7 @@ describe('Ingestion Pipeline & Vector Indexing Integration Tests', () => {
 
     // Persisted Qdrant points verification: Rev 3 points exist
     const client = QdrantService.getClient();
-    const defaultCollection = process.env.QDRANT_COLLECTION_NAME || 'enterprise_knowledge_chunks';
-    const rev3Points = await client.retrieve(defaultCollection, {
+    const rev3Points = await client.retrieve(TEST_COLLECTION, {
       ids: [rev3Chunks[0].vectorId],
       with_payload: true,
     });
@@ -472,7 +463,7 @@ describe('Ingestion Pipeline & Vector Indexing Integration Tests', () => {
     expect(rev3Points[0].payload?.revision).toBe(3);
 
     // Rev 2 points in Qdrant must be purged
-    const rev2Points = await client.retrieve(defaultCollection, {
+    const rev2Points = await client.retrieve(TEST_COLLECTION, {
       ids: [rev2Chunks[0].vectorId],
     });
     expect(rev2Points.length).toBe(0);
@@ -547,8 +538,7 @@ describe('Ingestion Pipeline & Vector Indexing Integration Tests', () => {
 
     // Qdrant verification: Rev 3 points exist
     const client = QdrantService.getClient();
-    const defaultCollection = process.env.QDRANT_COLLECTION_NAME || 'enterprise_knowledge_chunks';
-    const rev3Points = await client.retrieve(defaultCollection, {
+    const rev3Points = await client.retrieve(TEST_COLLECTION, {
       ids: [rev3Chunks[0].vectorId],
       with_payload: true,
     });

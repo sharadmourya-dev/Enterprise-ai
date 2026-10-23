@@ -7,6 +7,7 @@ import { LlmFactory } from '../src/services/llm/llm.factory.js';
 import { MockLlmProvider } from '../src/services/llm/mock.llm.js';
 import { ConversationModel } from '../src/models/Conversation.model.js';
 import { MessageModel } from '../src/models/Message.model.js';
+import { DocumentModel } from '../src/models/Document.model.js';
 import { RedisService } from '../src/services/redis.service.js';
 import { createMockRedis } from './helpers/mock-redis.js';
 import { env } from '../src/config/env.js';
@@ -246,6 +247,9 @@ describe('Phase 5 — Multi-Turn RAG Context & Dynamic Authorization Reevaluatio
         status: 'active',
       });
 
+      // Explicitly represent an active repository with at least one READY document
+      jest.spyOn(DocumentModel, 'exists').mockResolvedValueOnce({ _id: new mongoose.Types.ObjectId() } as any);
+
       // Retrieval returns 0 candidates (e.g. document access was revoked or document revision updated)
       jest.spyOn(RetrievalService, 'search').mockResolvedValueOnce({
         candidates: [],
@@ -294,6 +298,9 @@ describe('Phase 5 — Multi-Turn RAG Context & Dynamic Authorization Reevaluatio
         ],
         status: 'completed',
       });
+
+      // Explicitly represent an active repository with at least one READY document
+      jest.spyOn(DocumentModel, 'exists').mockResolvedValueOnce({ _id: new mongoose.Types.ObjectId() } as any);
 
       // Turn 2: Access to Project Apollo was revoked -> Retrieval returns empty
       jest.spyOn(RetrievalService, 'search').mockResolvedValueOnce({
