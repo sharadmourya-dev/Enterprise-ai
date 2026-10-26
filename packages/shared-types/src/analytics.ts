@@ -92,6 +92,15 @@ export interface IAnalyticsOverview {
     positivePercentage: number;
     categoryBreakdown: Record<string, number>;
   };
+  topSources?: Array<{
+    documentId: string;
+    title: string;
+    retrievalCount: number;
+  }>;
+  topQuestions?: Array<{
+    query: string;
+    count: number;
+  }>;
 }
 
 export interface IAnalyticsDailyTrend {

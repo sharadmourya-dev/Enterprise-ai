@@ -12,8 +12,11 @@ export enum AuditAction {
   CHAT_QUERY = 'chat.query',
   ADMIN_ROLE_CHANGE = 'admin.user_role_change',
   ADMIN_CLEARANCE_CHANGE = 'admin.user_clearance_change',
+  ADMIN_PERMISSION_CHANGE = 'admin.user_permission_change',
   ADMIN_EXPORT_LOGS = 'admin.export_logs',
   ADMIN_PURGE = 'admin.purge',
+  ADMIN_VERIFY_CHAIN = 'admin.verify_chain',
+  AUTH_ACCESS_DENIED = 'auth.access_denied',
 }
 
 export enum AuditResourceType {
@@ -29,6 +32,9 @@ export interface IAuditLog {
   sequenceNumber: number;
   previousHash: string;
   userId?: string | null;
+  actorEmail?: string | null;
+  actorName?: string | null;
+  actorRole?: string | null;
   action: AuditAction;
   resourceType: AuditResourceType;
   resourceId: string;
@@ -38,4 +44,27 @@ export interface IAuditLog {
   details: Record<string, unknown>;
   tamperHash: string; // SHA-256 HMAC chained to previous record
   createdAt: string;
+}
+
+export interface IAuditSummary {
+  total: number;
+  success: number;
+  denied: number;
+  error: number;
+  failedTotal: number;
+  securityCritical: number;
+}
+
+export interface IAuditVerificationResult {
+  status: 'PASS' | 'FAIL';
+  isValid: boolean;
+  totalVerified: number;
+  invalidSignatureCount: number;
+  brokenPreviousHashCount: number;
+  sequenceGapCount: number;
+  firstInvalidSequence: number | null;
+  error?: string | null;
+  details?: Record<string, unknown> | null;
+  verifiedAt: string;
+  processIsolationNotice?: string;
 }

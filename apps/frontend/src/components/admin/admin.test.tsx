@@ -354,10 +354,14 @@ describe('Admin Analytics & Audit Log UI — Milestone 6 Integration', () => {
   describe('6. Cryptographic AuditChainVerifier', () => {
     it('executes verification and renders green confirmed badge when hash chain is valid', async () => {
       jest.spyOn(ApiClient, 'get').mockResolvedValueOnce({
+        status: 'PASS',
         isValid: true,
         totalVerified: 1420,
+        invalidSignatureCount: 0,
+        brokenPreviousHashCount: 0,
+        sequenceGapCount: 0,
+        firstInvalidSequence: null,
         error: null,
-        atSequence: null,
         details: null,
         verifiedAt: '2026-10-21T11:00:00.000Z',
         processIsolationNotice: 'Audit chain sequence writes are synchronized via atomic MongoDB counter.',
@@ -369,18 +373,22 @@ describe('Admin Analytics & Audit Log UI — Milestone 6 Integration', () => {
       fireEvent.click(verifyBtn);
 
       await waitFor(() => {
-        expect(screen.getByText('Chain Intact & Valid')).toBeInTheDocument();
-        expect(screen.getByText('Cryptographic Integrity Confirmed')).toBeInTheDocument();
-        expect(screen.getByText(/1,420/)).toBeInTheDocument();
+        expect(screen.getByTestId('verification-status-badge')).toHaveTextContent('STATUS: PASS');
+        expect(screen.getByText('Cryptographic Integrity Confirmed (PASS)')).toBeInTheDocument();
+        expect(screen.getByText(/1,420 records/)).toBeInTheDocument();
       });
     });
 
     it('detects tampering and renders critical violation alert with sequence number and error code', async () => {
       jest.spyOn(ApiClient, 'get').mockResolvedValueOnce({
+        status: 'FAIL',
         isValid: false,
         totalVerified: 2,
+        invalidSignatureCount: 1,
+        brokenPreviousHashCount: 0,
+        sequenceGapCount: 0,
+        firstInvalidSequence: 3,
         error: 'TAMPER_DETECTED_INVALID_HMAC: Entry at sequence 3 was modified',
-        atSequence: 3,
         details: { expected: 'hash_abc', recalculated: 'hash_xyz' },
         verifiedAt: '2026-10-21T11:00:00.000Z',
         processIsolationNotice: 'Audit chain sequence writes are synchronized via atomic MongoDB counter.',
@@ -392,15 +400,24 @@ describe('Admin Analytics & Audit Log UI — Milestone 6 Integration', () => {
       fireEvent.click(verifyBtn);
 
       await waitFor(() => {
-        expect(screen.getAllByText('Tamper Detected').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getByText('CRITICAL INTEGRITY VIOLATION DETECTED')).toBeInTheDocument();
+        expect(screen.getByTestId('verification-status-badge')).toHaveTextContent('STATUS: FAIL');
+        expect(screen.getByText('CRITICAL INTEGRITY VIOLATION DETECTED (FAIL)')).toBeInTheDocument();
         expect(screen.getAllByText(/TAMPER_DETECTED_INVALID_HMAC/).length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText(/Sequence #3/).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText('#3')).toBeInTheDocument();
       });
     });
   });
 
   describe('7. AuditLogTable Component', () => {
+    const sampleSummary = {
+      total: 2,
+      success: 1,
+      denied: 1,
+      error: 0,
+      failedTotal: 1,
+      securityCritical: 1,
+    };
+
     const sampleLogsResponse = {
       logs: [
         {
@@ -408,6 +425,9 @@ describe('Admin Analytics & Audit Log UI — Milestone 6 Integration', () => {
           sequenceNumber: 101,
           previousHash: 'prev_hash_100',
           userId: 'user-456',
+          actorEmail: 'engineer@enterprise.com',
+          actorName: 'Dev Engineer',
+          actorRole: 'engineer',
           action: AuditAction.DOC_UPLOAD,
           resourceType: AuditResourceType.DOCUMENT,
           resourceId: 'doc_sec_report_99',
@@ -423,6 +443,9 @@ describe('Admin Analytics & Audit Log UI — Milestone 6 Integration', () => {
           sequenceNumber: 102,
           previousHash: 'tamper_hmac_sha256_hash_101',
           userId: 'user-789',
+          actorEmail: 'suspicious@external.com',
+          actorName: null,
+          actorRole: null,
           action: AuditAction.AUTH_FAILED_LOGIN,
           resourceType: AuditResourceType.USER,
           resourceId: 'user-789',
@@ -442,32 +465,61 @@ describe('Admin Analytics & Audit Log UI — Milestone 6 Integration', () => {
       },
     };
 
-    it('renders audit entries, formats sequence numbers, and expands HMAC hashes upon inspection', async () => {
-      jest.spyOn(ApiClient, 'get').mockResolvedValue(sampleLogsResponse);
+    beforeEach(() => {
+      jest.spyOn(ApiClient, 'get').mockImplementation((endpoint: string) => {
+        if (endpoint.includes('summary')) return Promise.resolve(sampleSummary);
+        if (endpoint.includes('logs')) return Promise.resolve(sampleLogsResponse);
+        return Promise.resolve(null);
+      });
+    });
 
+    it('renders audit entries, summary cards, and expands human-readable inspector', async () => {
       renderWithProviders(<AuditLogTable />);
 
       await waitFor(() => {
+        // Summary metrics
+        expect(screen.getByTestId('total-events')).toHaveTextContent('2');
+        expect(screen.getByTestId('success-events')).toHaveTextContent('1');
+        expect(screen.getByTestId('failed-events')).toHaveTextContent('1');
+        expect(screen.getByTestId('security-critical')).toHaveTextContent('1');
+
+        // Table rows
         expect(screen.getByText('#101')).toBeInTheDocument();
         expect(screen.getByText('#102')).toBeInTheDocument();
         expect(screen.getAllByText('document.upload').length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText('auth.failed_login').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Success').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Denied').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText('Document Ingestion / Upload Processed')).toBeInTheDocument();
+        expect(screen.getByText('Failed Authentication Attempt')).toBeInTheDocument();
+        expect(screen.getByText('engineer@enterprise.com')).toBeInTheDocument();
       });
 
-      // Expand details for sequence #101
-      const inspectBtn = screen.getByLabelText('Toggle details for sequence #101');
+      // Expand details for sequence #102 (denied login)
+      const inspectBtn = screen.getByTestId('inspect-btn-102');
       fireEvent.click(inspectBtn);
 
-      // Verify HMAC hash and details revealed
-      expect(screen.getByText('tamper_hmac_sha256_hash_101')).toBeInTheDocument();
-      expect(screen.getByText('prev_hash_100')).toBeInTheDocument();
-      expect(screen.getByText(/application\/pdf/)).toBeInTheDocument();
+      // Verify safe failure reason and HMAC hashes revealed
+      await waitFor(() => {
+        expect(screen.getByText('INVALID_CREDENTIALS')).toBeInTheDocument();
+        expect(screen.getByText('tamper_hmac_sha256_hash_102')).toBeInTheDocument();
+        expect(screen.getAllByText('suspicious@external.com').length).toBeGreaterThanOrEqual(2);
+      });
     });
 
-    it('updates query filters and requests filtered audit records', async () => {
-      const getSpy = jest.spyOn(ApiClient, 'get').mockResolvedValue(sampleLogsResponse);
+    it('provides CSV and JSON export buttons', async () => {
+      renderWithProviders(<AuditLogTable />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('export-csv-button')).toBeInTheDocument();
+        expect(screen.getByTestId('export-json-button')).toBeInTheDocument();
+      });
+    });
+
+    it('updates query filters and requests filtered audit records and summary', async () => {
+      const getSpy = jest.spyOn(ApiClient, 'get').mockImplementation((endpoint: string) => {
+        if (endpoint.includes('summary')) return Promise.resolve(sampleSummary);
+        if (endpoint.includes('logs')) return Promise.resolve(sampleLogsResponse);
+        return Promise.resolve(null);
+      });
 
       renderWithProviders(<AuditLogTable />);
 
@@ -483,12 +535,13 @@ describe('Admin Analytics & Audit Log UI — Milestone 6 Integration', () => {
         expect(getSpy).toHaveBeenCalledWith('/api/v1/admin/audit/logs', expect.objectContaining({
           status: 'denied',
         }));
+        expect(getSpy).toHaveBeenCalledWith('/api/v1/admin/audit/summary', expect.objectContaining({
+          status: 'denied',
+        }));
       });
     });
 
     it('strictly guarantees read-only audit log view without edit, delete, or mutation controls', async () => {
-      jest.spyOn(ApiClient, 'get').mockResolvedValue(sampleLogsResponse);
-
       renderWithProviders(<AuditLogTable />);
 
       await waitFor(() => {
@@ -503,3 +556,4 @@ describe('Admin Analytics & Audit Log UI — Milestone 6 Integration', () => {
     });
   });
 });
+

@@ -28,77 +28,85 @@ export function DocumentStatusBadge({
   switch (status) {
     case DocumentStatus.QUEUED:
       return (
-        <Badge
-          variant="warning"
-          size="sm"
-          icon={<Clock className="w-3 h-3 text-status-warning" />}
-          className={cn('font-medium', className)}
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide border bg-amber-500/10 text-amber-400 border-amber-500/25 select-none transition-colors duration-150',
+            className
+          )}
         >
-          Queued
-        </Badge>
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+          <Clock className="w-3 h-3 shrink-0 hidden" />
+          <span>Queued</span>
+        </span>
       );
 
     case DocumentStatus.PROCESSING:
       return (
-        <Badge
-          variant="brand"
-          size="sm"
-          icon={<Loader2 className="w-3 h-3 text-brand-primary animate-spin" />}
-          className={cn('font-medium', className)}
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide border bg-sky-500/10 text-sky-400 border-sky-500/25 select-none transition-colors duration-150',
+            className
+          )}
         >
-          Processing
-        </Badge>
+          <Loader2 className="w-3 h-3 text-sky-400 animate-spin shrink-0" />
+          <span>Processing</span>
+        </span>
       );
 
     case DocumentStatus.INDEXING:
       return (
-        <Badge
-          variant="info"
-          size="sm"
-          icon={<RefreshCw className="w-3 h-3 text-status-info animate-spin" />}
-          className={cn('font-medium', className)}
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide border bg-indigo-500/10 text-indigo-400 border-indigo-500/25 select-none transition-colors duration-150',
+            className
+          )}
         >
-          Indexing
-        </Badge>
+          <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
+          <span>Indexing</span>
+        </span>
       );
 
     case DocumentStatus.READY:
     case DocumentStatus.INDEXED:
       return (
-        <Badge
-          variant="success"
-          size="sm"
-          icon={<CheckCircle2 className="w-3 h-3 text-status-success" />}
-          className={cn('font-medium', className)}
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide border bg-emerald-500/10 text-emerald-400 border-emerald-500/25 select-none transition-colors duration-150',
+            className
+          )}
         >
-          Ready
-        </Badge>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+          <CheckCircle2 className="w-3 h-3 shrink-0 hidden" />
+          <span>Ready</span>
+        </span>
       );
 
     case DocumentStatus.FAILED:
       return (
         <span title={errorMessage || 'Processing failed. Click retry to re-process.'}>
-          <Badge
-            variant="error"
-            size="sm"
-            icon={<AlertCircle className="w-3 h-3 text-status-error" />}
-            className={cn('font-medium cursor-help', className)}
+          <span
+            className={cn(
+              'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide border bg-rose-500/10 text-rose-400 border-rose-500/25 select-none cursor-help transition-colors duration-150',
+              className
+            )}
           >
-            Failed
-          </Badge>
+            <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
+            <span>Failed</span>
+          </span>
         </span>
       );
 
     case DocumentStatus.DELETING:
       return (
-        <Badge
-          variant="default"
-          size="sm"
-          icon={<Trash2 className="w-3 h-3 text-muted animate-pulse" />}
-          className={cn('font-medium', className)}
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide border bg-surface-elevated text-secondary border-subtle select-none transition-colors duration-150',
+            className
+          )}
         >
-          Deleting
-        </Badge>
+          <Trash2 className="w-3 h-3 text-muted animate-pulse shrink-0" />
+          <span>Deleting</span>
+        </span>
       );
 
     case DocumentStatus.ARCHIVED:

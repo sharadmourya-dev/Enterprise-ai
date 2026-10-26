@@ -1,6 +1,7 @@
 import { Worker, Job } from 'bullmq';
-import { DocumentStatus, CLEARANCE_RANK, IQdrantChunkPayload } from '@enterprise-ai/shared-types';
+import { DocumentStatus, CLEARANCE_RANK, IQdrantChunkPayload, AuditAction, AuditResourceType } from '@enterprise-ai/shared-types';
 import { INGESTION_QUEUE_NAME, IIngestionJobPayload, getRedisConnection } from './ingestion.queue.js';
+import { AuditService } from '../services/audit.service.js';
 import { DocumentModel } from '../models/Document.model.js';
 import { DocumentChunkModel } from '../models/DocumentChunk.model.js';
 import { StorageService } from '../services/storage.service.js';
@@ -233,6 +234,21 @@ export class IngestionWorker {
         `Successfully ingested and indexed document ${documentId} (rev ${targetRevision}): ${chunks.length} chunks, ${totalTokens} tokens.`
       );
 
+      await AuditService.log({
+        userId: document.uploadedBy.toString(),
+        action: AuditAction.DOC_UPLOAD,
+        resourceType: AuditResourceType.DOCUMENT,
+        resourceId: document._id.toString(),
+        ipAddress: 'internal_worker',
+        status: 'success',
+        details: {
+          event: 'ingestion_completed',
+          targetRevision,
+          chunkCount: chunks.length,
+          totalTokens,
+        },
+      });
+
       // Invalidate RAG response cache so new revision is reflected
       await RagCacheService.invalidateAll();
     } catch (err: unknown) {
@@ -283,6 +299,20 @@ export class IngestionWorker {
             `Preserved active READY revision ${activeRevision} for document ${documentId} despite re-indexing failure.`
           );
         }
+
+        await AuditService.log({
+          userId: document.uploadedBy.toString(),
+          action: AuditAction.DOC_UPLOAD,
+          resourceType: AuditResourceType.DOCUMENT,
+          resourceId: document._id.toString(),
+          ipAddress: 'internal_worker',
+          status: 'error',
+          details: {
+            event: 'ingestion_failed',
+            targetRevision,
+            error: errMsg.substring(0, 250),
+          },
+        });
       }
 
       // Re-throw so BullMQ records the failure and schedules retry if attempts remain

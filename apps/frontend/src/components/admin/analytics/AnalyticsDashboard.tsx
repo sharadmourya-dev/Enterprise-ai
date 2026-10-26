@@ -12,6 +12,7 @@ import { AnalyticsKpiCard } from './AnalyticsKpiCard';
 import { TrendChart } from './TrendChart';
 import { IngestionStatsView } from './IngestionStatsView';
 import { FeedbackBreakdownView } from './FeedbackBreakdownView';
+import { KnowledgeSourcesView } from './KnowledgeSourcesView';
 import { RagEvalNoticeCard } from './RagEvalNoticeCard';
 import {
   Activity,
@@ -20,10 +21,15 @@ import {
   Users,
   FileText,
   ThumbsUp,
+  ThumbsDown,
   RefreshCw,
   Calendar,
   AlertTriangle,
   Database,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { formatFileSize } from '@/components/documents/DocumentList';
 import { cn } from '@/lib/utils';
@@ -124,6 +130,14 @@ export function AnalyticsDashboard() {
     }
     fetchAnalytics();
   };
+
+  const totalQueries = overview?.queryMetrics?.totalQueries || 0;
+  const successQueries = overview?.queryMetrics?.successQueries || 0;
+  const filteredEmptyQueries = overview?.queryMetrics?.filteredEmptyQueries || 0;
+  const retrievalSuccessRate =
+    totalQueries > 0 ? Number(((successQueries / totalQueries) * 100).toFixed(1)) : 0;
+  const noAnswerRate =
+    totalQueries > 0 ? Number(((filteredEmptyQueries / totalQueries) * 100).toFixed(1)) : 0;
 
   return (
     <div className="space-y-6">
@@ -243,108 +257,190 @@ export function AnalyticsDashboard() {
         </div>
       )}
 
-      {/* KPI Overview Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <AnalyticsKpiCard
-          title="Total Queries"
-          value={overview?.queryMetrics?.totalQueries?.toLocaleString()}
-          subtitle={`${overview?.queryMetrics?.successQueries || 0} passed, ${
-            overview?.queryMetrics?.errorQueries || 0
-          } errors`}
-          icon={<Activity className="w-5 h-5" />}
-          iconColorClass="text-brand-primary bg-brand-primary/10"
-          badge={
-            overview?.queryMetrics?.filteredEmptyQueries ? (
-              <Badge variant="warning" className="text-[10px]">
-                {overview.queryMetrics.filteredEmptyQueries} filtered
-              </Badge>
-            ) : undefined
-          }
-          isLoading={isLoading}
-          testId="kpi-total-queries"
-        />
+      {/* Primary KPI Overview Metric Cards */}
+      <div className="space-y-4">
+        {/* Tier 1: Query & RAG Performance (Bounded by Selected Time Range) */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Query Throughput &amp; Response Telemetry ({timeWindow.toUpperCase()})
+            </h3>
+            <span className="text-[11px] text-text-muted">Bounded by selected date window</span>
+          </div>
 
-        <AnalyticsKpiCard
-          title="Cache Hit Rate"
-          value={
-            overview?.queryMetrics
-              ? `${overview.queryMetrics.cacheHitRatePercentage}%`
-              : undefined
-          }
-          subtitle={`${(overview?.queryMetrics?.totalTokensConsumed || 0).toLocaleString()} tokens saved/spent`}
-          icon={<Zap className="w-5 h-5" />}
-          iconColorClass="text-status-info bg-status-info/10"
-          badge={
-            overview?.queryMetrics?.cacheHitRatePercentage ? (
-              <Badge variant="info" className="text-[10px]">Redis</Badge>
-            ) : undefined
-          }
-          isLoading={isLoading}
-          testId="kpi-cache-hit-rate"
-        />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            <AnalyticsKpiCard
+              title="Total Queries"
+              value={totalQueries.toLocaleString()}
+              subtitle={`${successQueries} passed, ${overview?.queryMetrics?.errorQueries || 0} errors`}
+              icon={<Activity className="w-5 h-5" />}
+              iconColorClass="text-brand-primary bg-brand-primary/10"
+              isLoading={isLoading}
+              testId="kpi-total-queries"
+            />
 
-        <AnalyticsKpiCard
-          title="Avg Latency"
-          value={
-            overview?.queryMetrics
-              ? `${overview.queryMetrics.averageLatencyMs} ms`
-              : undefined
-          }
-          subtitle={`p95 latency: ${overview?.queryMetrics?.p95LatencyMs || 0} ms`}
-          icon={<Clock className="w-5 h-5" />}
-          iconColorClass="text-status-warning bg-status-warning/10"
-          isLoading={isLoading}
-          testId="kpi-avg-latency"
-        />
+            <AnalyticsKpiCard
+              title="Failed Queries"
+              value={(overview?.queryMetrics?.errorQueries || 0).toLocaleString()}
+              subtitle={`${noAnswerRate}% no-answer / filtered`}
+              icon={<XCircle className="w-5 h-5" />}
+              iconColorClass="text-status-error bg-status-error/10"
+              badge={
+                overview?.queryMetrics?.errorQueries ? (
+                  <Badge variant="error" className="text-[10px]">
+                    {overview.queryMetrics.errorQueries} Errs
+                  </Badge>
+                ) : (
+                  <Badge variant="success" className="text-[10px]">0 Errors</Badge>
+                )
+              }
+              isLoading={isLoading}
+              testId="kpi-failed-queries"
+            />
 
-        <AnalyticsKpiCard
-          title="Active Users"
-          value={overview?.userMetrics?.activeUsers?.toLocaleString()}
-          subtitle={`Out of ${overview?.userMetrics?.totalUsers || 0} total enrolled`}
-          icon={<Users className="w-5 h-5" />}
-          iconColorClass="text-status-success bg-status-success/10"
-          isLoading={isLoading}
-          testId="kpi-active-users"
-        />
+            <AnalyticsKpiCard
+              title="Avg Response Time"
+              value={overview?.queryMetrics ? `${overview.queryMetrics.averageLatencyMs} ms` : undefined}
+              subtitle={`p95 latency: ${overview?.queryMetrics?.p95LatencyMs || 0} ms`}
+              icon={<Clock className="w-5 h-5" />}
+              iconColorClass="text-status-warning bg-status-warning/10"
+              isLoading={isLoading}
+              testId="kpi-avg-latency"
+            />
 
-        <AnalyticsKpiCard
-          title="Ingested Docs"
-          value={overview?.documentMetrics?.totalDocuments?.toLocaleString()}
-          subtitle={`${overview?.documentMetrics?.totalChunks?.toLocaleString() || 0} chunks, ${formatFileSize(
-            overview?.documentMetrics?.totalFileSizeBytes || 0
-          )}`}
-          icon={<FileText className="w-5 h-5" />}
-          iconColorClass="text-brand-primary bg-brand-primary/10"
-          badge={
-            overview?.documentMetrics?.readyDocuments ? (
-              <Badge variant="success" className="text-[10px]">
-                {overview.documentMetrics.readyDocuments} Ready
-              </Badge>
-            ) : undefined
-          }
-          isLoading={isLoading}
-          testId="kpi-total-documents"
-        />
+            <AnalyticsKpiCard
+              title="Retrieval Success Rate"
+              value={overview?.queryMetrics ? `${retrievalSuccessRate}%` : undefined}
+              subtitle={`${successQueries} out of ${totalQueries} succeeded`}
+              icon={<ShieldCheck className="w-5 h-5" />}
+              iconColorClass="text-status-success bg-status-success/10"
+              badge={
+                retrievalSuccessRate >= 90 ? (
+                  <Badge variant="success" className="text-[10px]">Optimal</Badge>
+                ) : undefined
+              }
+              isLoading={isLoading}
+              testId="kpi-retrieval-success-rate"
+            />
 
-        <AnalyticsKpiCard
-          title="Positive Sentiment"
-          value={
-            overview?.feedbackMetrics
-              ? `${overview.feedbackMetrics.positivePercentage}%`
-              : undefined
-          }
-          subtitle={`${overview?.feedbackMetrics?.thumbsUp || 0} up, ${
-            overview?.feedbackMetrics?.thumbsDown || 0
-          } down`}
-          icon={<ThumbsUp className="w-5 h-5" />}
-          iconColorClass="text-status-success bg-status-success/10"
-          isLoading={isLoading}
-          testId="kpi-positive-sentiment"
-        />
+            <AnalyticsKpiCard
+              title="Cache Hit Rate"
+              value={overview?.queryMetrics ? `${overview.queryMetrics.cacheHitRatePercentage}%` : undefined}
+              subtitle={`${(overview?.queryMetrics?.totalTokensConsumed || 0).toLocaleString()} tokens consumed`}
+              icon={<Zap className="w-5 h-5" />}
+              iconColorClass="text-status-info bg-status-info/10"
+              badge={<Badge variant="info" className="text-[10px]">Redis</Badge>}
+              isLoading={isLoading}
+              testId="kpi-cache-hit-rate"
+            />
+
+            <AnalyticsKpiCard
+              title="User Feedback"
+              value={overview?.feedbackMetrics ? `${overview.feedbackMetrics.positivePercentage}%` : undefined}
+              subtitle={`${overview?.feedbackMetrics?.thumbsUp || 0} positive, ${overview?.feedbackMetrics?.thumbsDown || 0} negative`}
+              icon={<ThumbsUp className="w-5 h-5" />}
+              iconColorClass="text-status-success bg-status-success/10"
+              badge={
+                overview?.feedbackMetrics?.thumbsDown ? (
+                  <Badge variant="warning" className="text-[10px]">
+                    {overview.feedbackMetrics.thumbsDown} negative
+                  </Badge>
+                ) : undefined
+              }
+              isLoading={isLoading}
+              testId="kpi-positive-sentiment"
+            />
+          </div>
+        </div>
+
+        {/* Tier 2: System Users & Document Corpus (Current Enterprise Totals) */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Corpus &amp; User Enrollment (All Time Enterprise Totals)
+            </h3>
+            <span className="text-[11px] text-text-muted">Current live system state</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <AnalyticsKpiCard
+              title="Total Users"
+              value={overview?.userMetrics?.totalUsers?.toLocaleString()}
+              subtitle="Total enrolled enterprise accounts"
+              icon={<Users className="w-5 h-5" />}
+              iconColorClass="text-brand-primary bg-brand-primary/10"
+              isLoading={isLoading}
+              testId="kpi-total-users"
+            />
+
+            <AnalyticsKpiCard
+              title="Active Users"
+              value={overview?.userMetrics?.activeUsers?.toLocaleString()}
+              subtitle={`${
+                overview?.userMetrics?.totalUsers
+                  ? Math.round(
+                      ((overview.userMetrics.activeUsers || 0) / overview.userMetrics.totalUsers) * 100
+                    )
+                  : 0
+              }% account activation rate`}
+              icon={<Users className="w-5 h-5" />}
+              iconColorClass="text-status-success bg-status-success/10"
+              isLoading={isLoading}
+              testId="kpi-active-users"
+            />
+
+            <AnalyticsKpiCard
+              title="Total Documents"
+              value={overview?.documentMetrics?.totalDocuments?.toLocaleString()}
+              subtitle={`${overview?.documentMetrics?.totalChunks?.toLocaleString() || 0} chunks, ${formatFileSize(
+                overview?.documentMetrics?.totalFileSizeBytes || 0
+              )}`}
+              icon={<FileText className="w-5 h-5" />}
+              iconColorClass="text-brand-primary bg-brand-primary/10"
+              isLoading={isLoading}
+              testId="kpi-total-documents"
+            />
+
+            <AnalyticsKpiCard
+              title="Documents Ready"
+              value={overview?.documentMetrics?.readyDocuments?.toLocaleString()}
+              subtitle="Successfully indexed for RAG vector search"
+              icon={<CheckCircle2 className="w-5 h-5" />}
+              iconColorClass="text-status-success bg-status-success/10"
+              badge={<Badge variant="success" className="text-[10px]">Indexed</Badge>}
+              isLoading={isLoading}
+              testId="kpi-ready-documents"
+            />
+
+            <AnalyticsKpiCard
+              title="Processing Failures"
+              value={overview?.documentMetrics?.failedDocuments?.toLocaleString()}
+              subtitle={`${ingestion?.failureRatePercentage || 0}% overall pipeline failure rate`}
+              icon={<AlertTriangle className="w-5 h-5" />}
+              iconColorClass="text-status-error bg-status-error/10"
+              badge={
+                overview?.documentMetrics?.failedDocuments ? (
+                  <Badge variant="error" className="text-[10px]">Action Required</Badge>
+                ) : (
+                  <Badge variant="success" className="text-[10px]">0 Failed</Badge>
+                )
+              }
+              isLoading={isLoading}
+              testId="kpi-failed-documents"
+            />
+          </div>
+        </div>
       </div>
 
-      {/* Trends Section */}
+      {/* Query & Usage Trends Section */}
       <TrendChart trends={trends} isLoading={isLoading} />
+
+      {/* Most-Used Knowledge Sources & Top User Questions */}
+      <KnowledgeSourcesView
+        topSources={overview?.topSources}
+        topQuestions={overview?.topQuestions}
+        isLoading={isLoading}
+      />
 
       {/* Ingestion Pipeline Telemetry */}
       <IngestionStatsView stats={ingestion} isLoading={isLoading} />

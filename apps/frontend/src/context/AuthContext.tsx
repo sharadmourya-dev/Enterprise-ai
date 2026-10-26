@@ -5,6 +5,8 @@ import {
   Role,
   ClearanceLevel,
   CLEARANCE_RANK,
+  Permission,
+  hasPermission as checkPermission,
   ISafeUser,
   ITokenPair,
   ILoginRequest,
@@ -20,8 +22,10 @@ export interface AuthContextType {
   role: Role | null;
   clearance: ClearanceLevel | null;
   isAdmin: boolean;
+  canUpload: boolean;
   hasRole: (...roles: Role[]) => boolean;
   hasClearance: (minimumClearance: ClearanceLevel) => boolean;
+  hasPermission: (permission: Permission | string) => boolean;
   login: (credentials: ILoginRequest) => Promise<void>;
   register: (data: IRegisterRequest) => Promise<ISafeUser>;
   logout: () => Promise<void>;
@@ -164,7 +168,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = useCallback(async (): Promise<boolean> => {
     const token = await handleRefreshToken();
-    return token !== null;
+    if (token) {
+      try {
+        const profile = await ApiClient.get<ISafeUser>('/auth/me');
+        if (profile) {
+          setUser(profile);
+          TokenStorage.setUser(profile);
+        }
+      } catch {
+        // Retain current session state if profile fetch fails
+      }
+      return true;
+    }
+    return false;
   }, [handleRefreshToken]);
 
   // Authorization helper: Check if user has one of the allowed roles
@@ -187,9 +203,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user]
   );
 
+  // Authorization helper: Granular permission claim check
+  const hasPermission = useCallback(
+    (permission: Permission | string): boolean => {
+      if (!user) return false;
+      return checkPermission(user, permission);
+    },
+    [user]
+  );
+
   const role = user?.role ?? null;
   const clearance = user?.securityClearance ?? null;
   const isAdmin = role === Role.ADMIN || role === Role.SUPER_ADMIN;
+  const canUpload = isAdmin || (user ? checkPermission(user, Permission.DOCUMENTS_UPLOAD) : false);
   const isAuthenticated = Boolean(user && TokenStorage.getRefreshToken());
 
   const value = useMemo<AuthContextType>(
@@ -200,8 +226,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role,
       clearance,
       isAdmin,
+      canUpload,
       hasRole,
       hasClearance,
+      hasPermission,
       login,
       register,
       logout,
@@ -214,8 +242,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role,
       clearance,
       isAdmin,
+      canUpload,
       hasRole,
       hasClearance,
+      hasPermission,
       login,
       register,
       logout,

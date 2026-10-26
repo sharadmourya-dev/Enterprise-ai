@@ -11,6 +11,8 @@ router.use(authenticate);
 router.use(requireRole(Role.ADMIN, Role.SUPER_ADMIN));
 
 router.get('/verify', AdminAuditController.verifyAuditChain);
+router.get('/summary', AdminAuditController.getAuditSummary);
+router.get('/export', AdminAuditController.exportAuditLogs);
 router.get('/logs', AdminAuditController.listAuditLogs);
 
 export default router;

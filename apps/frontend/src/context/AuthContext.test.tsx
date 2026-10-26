@@ -264,5 +264,99 @@ describe('AuthContext & Lifecycle', () => {
       expect(clearanceRef.auth?.hasClearance(ClearanceLevel.CONFIDENTIAL)).toBe(false);
       expect(clearanceRef.auth?.hasClearance(ClearanceLevel.RESTRICTED)).toBe(false);
     });
+
+    it('evaluates granular permissions and canUpload correctly for roles and employee permissions', async () => {
+      let currentRole: Role = Role.USER;
+      let currentPermissions: string[] = [];
+
+      (ApiClient.post as jest.Mock).mockImplementation((endpoint) => {
+        if (endpoint === '/auth/login') {
+          return Promise.resolve({
+            user: { ...mockSafeUser, role: currentRole, permissions: currentPermissions },
+            tokens: mockTokens,
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      // 1. Regular employee without upload permission
+      currentRole = Role.USER;
+      currentPermissions = [];
+
+      const userRef: { auth: AuthContextType | null } = { auth: null };
+      const { unmount: unmountUser } = render(
+        <AuthProvider key="user-noperms">
+          <TestAuthConsumer onRender={(a) => (userRef.auth = a)} />
+        </AuthProvider>
+      );
+
+      await act(async () => {
+        screen.getByText('Trigger Login').click();
+      });
+
+      expect(userRef.auth?.canUpload).toBe(false);
+      expect(userRef.auth?.hasPermission('documents:upload')).toBe(false);
+      unmountUser();
+
+      // 2. Authorized employee explicitly granted documents:upload
+      currentRole = Role.USER;
+      currentPermissions = ['documents:upload'];
+
+      const authEmployeeRef: { auth: AuthContextType | null } = { auth: null };
+      const { unmount: unmountAuthEmployee } = render(
+        <AuthProvider key="auth-emp">
+          <TestAuthConsumer onRender={(a) => (authEmployeeRef.auth = a)} />
+        </AuthProvider>
+      );
+
+      await act(async () => {
+        screen.getByText('Trigger Login').click();
+      });
+
+      expect(authEmployeeRef.auth?.canUpload).toBe(true);
+      expect(authEmployeeRef.auth?.hasPermission('documents:upload')).toBe(true);
+      expect(authEmployeeRef.auth?.hasPermission('admin:analytics')).toBe(false);
+      unmountAuthEmployee();
+
+      // 3. Knowledge Manager role defaults
+      currentRole = Role.KNOWLEDGE_MANAGER;
+      currentPermissions = [];
+
+      const kmRef: { auth: AuthContextType | null } = { auth: null };
+      const { unmount: unmountKm } = render(
+        <AuthProvider key="km">
+          <TestAuthConsumer onRender={(a) => (kmRef.auth = a)} />
+        </AuthProvider>
+      );
+
+      await act(async () => {
+        screen.getByText('Trigger Login').click();
+      });
+
+      expect(kmRef.auth?.canUpload).toBe(true);
+      expect(kmRef.auth?.hasPermission('documents:upload')).toBe(true);
+      expect(kmRef.auth?.hasPermission('documents:retry')).toBe(true);
+      expect(kmRef.auth?.hasPermission('admin:analytics')).toBe(false);
+      unmountKm();
+
+      // 4. Admin holds all permissions
+      currentRole = Role.ADMIN;
+      currentPermissions = [];
+
+      const adminPermRef: { auth: AuthContextType | null } = { auth: null };
+      render(
+        <AuthProvider key="admin-perm">
+          <TestAuthConsumer onRender={(a) => (adminPermRef.auth = a)} />
+        </AuthProvider>
+      );
+
+      await act(async () => {
+        screen.getByText('Trigger Login').click();
+      });
+
+      expect(adminPermRef.auth?.canUpload).toBe(true);
+      expect(adminPermRef.auth?.hasPermission('documents:upload')).toBe(true);
+      expect(adminPermRef.auth?.hasPermission('admin:analytics')).toBe(true);
+    });
   });
 });

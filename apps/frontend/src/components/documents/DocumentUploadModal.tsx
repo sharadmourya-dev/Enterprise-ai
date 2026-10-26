@@ -176,12 +176,19 @@ export function DocumentUploadModal({
     }
 
     // Append department
-    if (departmentInput.trim()) {
-      const depts = departmentInput
-        .split(',')
-        .map((d) => d.trim())
-        .filter(Boolean);
-      depts.forEach((d) => formData.append('allowedDepartments', d));
+    if (isAdmin) {
+      if (departmentInput.trim()) {
+        const depts = departmentInput
+          .split(',')
+          .map((d) => d.trim())
+          .filter(Boolean);
+        depts.forEach((d) => formData.append('allowedDepartments', d));
+      }
+    } else {
+      // Non-admins automatically bound to their authenticated department
+      if (user?.department) {
+        formData.append('allowedDepartments', user.department);
+      }
     }
 
     // Append user IDs (admins only)
@@ -226,6 +233,7 @@ export function DocumentUploadModal({
     <Modal
       isOpen={isOpen}
       onClose={handleModalClose}
+      preventClose={isUploading}
       title="Upload Knowledge Document"
       description="Upload corporate documentation to the secure RAG vector repository."
       size="lg"
@@ -376,20 +384,23 @@ export function DocumentUploadModal({
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-secondary flex items-center gap-1.5">
               <Building className="w-3.5 h-3.5 text-muted" />
-              <span>Department Scope (Optional)</span>
+              <span>Department Scope</span>
             </label>
-            <input
-              type="text"
-              placeholder={
-                isAdmin
-                  ? 'e.g. Engineering, Finance (comma-separated or empty for all)'
-                  : `Assigned to ${user?.department || 'your department'} (leave empty for all)`
-              }
-              value={departmentInput}
-              onChange={(e) => setDepartmentInput(e.target.value)}
-              disabled={isUploading}
-              className="w-full px-3 py-2 rounded-lg border border-subtle bg-surface text-xs text-primary placeholder:text-muted outline-none focus:ring-2 focus:ring-brand-primary"
-            />
+            {isAdmin ? (
+              <input
+                type="text"
+                placeholder="e.g. Engineering, Finance (comma-separated or empty for all)"
+                value={departmentInput}
+                onChange={(e) => setDepartmentInput(e.target.value)}
+                disabled={isUploading}
+                className="w-full px-3 py-2 rounded-lg border border-subtle bg-surface text-xs text-primary placeholder:text-muted outline-none focus:ring-2 focus:ring-brand-primary"
+              />
+            ) : (
+              <div className="flex items-center justify-between p-2.5 rounded-lg border border-subtle bg-surface text-xs text-primary">
+                <span className="font-semibold">{user?.department || 'Your Department'}</span>
+                <span className="text-[11px] text-muted">(Automatically assigned to your department)</span>
+              </div>
+            )}
           </div>
 
           {/* User IDs Scope (Admins Only) */}
@@ -420,7 +431,15 @@ export function DocumentUploadModal({
           <div className="p-2.5 rounded-lg bg-surface text-[11px] text-muted flex items-start gap-2 border border-subtle/60">
             <Info className="w-3.5 h-3.5 text-brand-primary shrink-0 mt-0.5" />
             <span>
-              <strong>Empty ACL Semantics:</strong> Leaving roles and departments unselected makes this document accessible across all enterprise employees possessing the required clearance rank.
+              {isAdmin ? (
+                <>
+                  <strong>Empty ACL Semantics:</strong> Leaving roles and departments unselected makes this document accessible across all enterprise employees possessing the required clearance rank.
+                </>
+              ) : (
+                <>
+                  <strong>Access Policy:</strong> Your uploaded document is automatically scoped to the <strong>{user?.department || 'your'}</strong> department and accessible to colleagues possessing the selected clearance.
+                </>
+              )}
             </span>
           </div>
         </div>
@@ -434,7 +453,7 @@ export function DocumentUploadModal({
         )}
 
         {/* Modal Actions */}
-        <div className="flex items-center justify-end gap-2.5 pt-2">
+        <div className="sticky bottom-0 z-10 -mx-5 -mb-5 md:-mx-6 md:-mb-6 mt-6 p-4 px-5 md:px-6 bg-surface-elevated border-t border-subtle flex items-center justify-end gap-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_16px_rgba(0,0,0,0.35)]">
           <Button
             type="button"
             variant="outline"
@@ -452,6 +471,7 @@ export function DocumentUploadModal({
             isLoading={isUploading}
             disabled={!file || isUploading}
             leftIcon={<UploadCloud className="w-4 h-4" />}
+            id="upload-document-submit-btn"
           >
             {isUploading ? 'Uploading & Enqueuing...' : 'Upload Document'}
           </Button>

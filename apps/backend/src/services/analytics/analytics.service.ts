@@ -189,6 +189,55 @@ export class AnalyticsService {
       categoryBreakdown[c._id || 'other'] = c.count;
     });
 
+    // 6. Most Frequently Asked Questions (Top 5 within date range)
+    const topQuestionsAgg = await QueryLogModel.aggregate<{ _id: string; count: number }>([
+      { $match: dateQuery },
+      { $group: { _id: '$rawQuery', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 5 },
+    ]);
+
+    const topQuestions = topQuestionsAgg
+      .filter((q) => Boolean(q._id && q._id.trim()))
+      .map((q) => ({
+        query: q._id,
+        count: q.count,
+      }));
+
+    // 7. Most Frequently Retrieved Documents (Top 5 within date range)
+    const topSourcesAgg = await QueryLogModel.aggregate<{
+      _id: any;
+      title: string;
+      retrievalCount: number;
+    }>([
+      { $match: { ...dateQuery, 'retrievedChunkIds.0': { $exists: true } } },
+      { $unwind: '$retrievedChunkIds' },
+      {
+        $lookup: {
+          from: 'documentchunks',
+          localField: 'retrievedChunkIds',
+          foreignField: '_id',
+          as: 'chunk',
+        },
+      },
+      { $unwind: '$chunk' },
+      {
+        $group: {
+          _id: '$chunk.documentId',
+          title: { $first: '$chunk.metadata.title' },
+          retrievalCount: { $sum: 1 },
+        },
+      },
+      { $sort: { retrievalCount: -1 } },
+      { $limit: 5 },
+    ]);
+
+    const topSources = topSourcesAgg.map((s) => ({
+      documentId: s._id ? s._id.toString() : 'unknown',
+      title: s.title || 'Untitled Document',
+      retrievalCount: s.retrievalCount,
+    }));
+
     return {
       userMetrics: {
         totalUsers,
@@ -227,6 +276,8 @@ export class AnalyticsService {
         positivePercentage,
         categoryBreakdown,
       },
+      topSources,
+      topQuestions,
     };
   }
 

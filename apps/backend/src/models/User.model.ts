@@ -8,6 +8,7 @@ export interface IUserDocument extends Document {
   role: Role;
   department: string;
   securityClearance: ClearanceLevel;
+  permissions: string[];
   isActive: boolean;
   refreshTokenHash?: string | null;
   tokenVersion: number;
@@ -53,6 +54,10 @@ const UserSchema = new Schema<IUserDocument>(
       enum: Object.values(ClearanceLevel),
       default: ClearanceLevel.INTERNAL,
       index: true,
+    },
+    permissions: {
+      type: [String],
+      default: [],
     },
     isActive: {
       type: Boolean,

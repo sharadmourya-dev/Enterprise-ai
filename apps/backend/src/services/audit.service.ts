@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import mongoose from 'mongoose';
-import { AuditAction, AuditResourceType } from '@enterprise-ai/shared-types';
+import {
+  AuditAction,
+  AuditResourceType,
+  IAuditVerificationResult,
+  IAuditSummary,
+} from '@enterprise-ai/shared-types';
 import { AuditLogModel, AuditCounterModel, IAuditLogEntity } from '../models/AuditLog.model.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
@@ -15,14 +20,6 @@ interface ILogAuditParams {
   status: 'success' | 'denied' | 'error';
   details?: Record<string, unknown>;
   timestamp?: Date;
-}
-
-export interface IAuditVerificationResult {
-  isValid: boolean;
-  totalVerified: number;
-  error?: string;
-  atSequence?: number;
-  details?: Record<string, unknown>;
 }
 
 export class AuditService {
@@ -129,21 +126,50 @@ export class AuditService {
    * Verifies the cryptographic integrity and sequence continuity of the audit chain
    */
   public static async verifyChain(secret = env.AUDIT_LOG_HMAC_SECRET): Promise<IAuditVerificationResult> {
+    const verifiedAt = new Date().toISOString();
+    const processIsolationNotice =
+      'Audit chain sequence writes are synchronized via atomic MongoDB counter and process-local promise queue. Multi-instance clusters require distributed coordination (e.g. distributed locks or sequencer).';
+
     if (!secret || secret.length < 16) {
       return {
+        status: 'FAIL',
         isValid: false,
         totalVerified: 0,
+        invalidSignatureCount: 0,
+        brokenPreviousHashCount: 0,
+        sequenceGapCount: 0,
+        firstInvalidSequence: null,
         error: 'INVALID_HMAC_SECRET: Cannot verify audit chain without valid secret',
+        verifiedAt,
+        processIsolationNotice,
       };
     }
 
-    const records = await AuditLogModel.find().sort({ sequenceNumber: 1 });
+    const records = await AuditLogModel.find().sort({ sequenceNumber: 1 }).lean();
 
     if (records.length === 0) {
-      return { isValid: true, totalVerified: 0 };
+      return {
+        status: 'PASS',
+        isValid: true,
+        totalVerified: 0,
+        invalidSignatureCount: 0,
+        brokenPreviousHashCount: 0,
+        sequenceGapCount: 0,
+        firstInvalidSequence: null,
+        error: null,
+        details: null,
+        verifiedAt,
+        processIsolationNotice,
+      };
     }
 
     let expectedPrevHash = 'GENESIS_HASH_INITIAL_LOG';
+    let invalidSignatureCount = 0;
+    let brokenPreviousHashCount = 0;
+    let sequenceGapCount = 0;
+    let firstInvalidSequence: number | null = null;
+    let firstError: string | null = null;
+    let firstDetails: Record<string, unknown> | null = null;
 
     for (let i = 0; i < records.length; i++) {
       const record = records[i];
@@ -151,23 +177,21 @@ export class AuditService {
 
       // 1. Check sequence continuity
       if (record.sequenceNumber !== expectedSeq) {
-        return {
-          isValid: false,
-          totalVerified: i,
-          error: `SEQUENCE_GAP_OR_REORDERED: Expected sequence ${expectedSeq}, but found ${record.sequenceNumber}`,
-          atSequence: record.sequenceNumber,
-        };
+        sequenceGapCount++;
+        if (firstInvalidSequence === null) {
+          firstInvalidSequence = record.sequenceNumber;
+          firstError = `SEQUENCE_GAP_OR_REORDERED: Expected sequence ${expectedSeq}, but found ${record.sequenceNumber}`;
+        }
       }
 
       // 2. Check previous hash linkage
       if (record.previousHash !== expectedPrevHash) {
-        return {
-          isValid: false,
-          totalVerified: i,
-          error: `BROKEN_HASH_LINK: Entry at sequence ${record.sequenceNumber} has previousHash mismatch`,
-          atSequence: record.sequenceNumber,
-          details: { expected: expectedPrevHash, found: record.previousHash },
-        };
+        brokenPreviousHashCount++;
+        if (firstInvalidSequence === null) {
+          firstInvalidSequence = record.sequenceNumber;
+          firstError = `BROKEN_HASH_LINK: Entry at sequence ${record.sequenceNumber} has previousHash mismatch`;
+          firstDetails = { expected: expectedPrevHash, found: record.previousHash };
+        }
       }
 
       // 3. Recalculate HMAC and assert integrity
@@ -184,21 +208,95 @@ export class AuditService {
       const recalculatedHash = this.computeHmac(payload, secret);
 
       if (recalculatedHash !== record.tamperHash) {
-        return {
-          isValid: false,
-          totalVerified: i,
-          error: `TAMPER_DETECTED_INVALID_HMAC: Entry at sequence ${record.sequenceNumber} was modified`,
-          atSequence: record.sequenceNumber,
-          details: { expected: record.tamperHash, recalculated: recalculatedHash },
-        };
+        invalidSignatureCount++;
+        if (firstInvalidSequence === null) {
+          firstInvalidSequence = record.sequenceNumber;
+          firstError = `TAMPER_DETECTED_INVALID_HMAC: Entry at sequence ${record.sequenceNumber} was modified`;
+          firstDetails = { expected: record.tamperHash, recalculated: recalculatedHash };
+        }
       }
 
       expectedPrevHash = record.tamperHash;
     }
 
+    const isValid = invalidSignatureCount === 0 && brokenPreviousHashCount === 0 && sequenceGapCount === 0;
+
     return {
-      isValid: true,
+      status: isValid ? 'PASS' : 'FAIL',
+      isValid,
       totalVerified: records.length,
+      invalidSignatureCount,
+      brokenPreviousHashCount,
+      sequenceGapCount,
+      firstInvalidSequence,
+      error: firstError,
+      details: firstDetails,
+      verifiedAt,
+      processIsolationNotice,
+    };
+  }
+
+  /**
+   * Aggregates summary counts for total, success, failure/denied, and security-critical audit events
+   */
+  public static async getSummary(query: Record<string, unknown> = {}): Promise<IAuditSummary> {
+    const securityCriticalActions = [
+      AuditAction.AUTH_FAILED_LOGIN,
+      AuditAction.AUTH_TOKEN_REVOKED,
+      AuditAction.ADMIN_ROLE_CHANGE,
+      AuditAction.ADMIN_CLEARANCE_CHANGE,
+      AuditAction.ADMIN_PERMISSION_CHANGE,
+      AuditAction.DOC_ACL_UPDATE,
+      AuditAction.ADMIN_PURGE,
+    ];
+
+    const [summary] = await AuditLogModel.aggregate<{
+      total: number;
+      success: number;
+      denied: number;
+      error: number;
+      securityCritical: number;
+    }>([
+      { $match: query },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          success: { $sum: { $cond: [{ $eq: ['$status', 'success'] }, 1, 0] } },
+          denied: { $sum: { $cond: [{ $eq: ['$status', 'denied'] }, 1, 0] } },
+          error: { $sum: { $cond: [{ $eq: ['$status', 'error'] }, 1, 0] } },
+          securityCritical: {
+            $sum: {
+              $cond: [
+                {
+                  $or: [
+                    { $in: ['$status', ['denied', 'error']] },
+                    { $in: ['$action', securityCriticalActions] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    const total = summary?.total || 0;
+    const success = summary?.success || 0;
+    const denied = summary?.denied || 0;
+    const error = summary?.error || 0;
+    const failedTotal = denied + error;
+    const securityCritical = summary?.securityCritical || 0;
+
+    return {
+      total,
+      success,
+      denied,
+      error,
+      failedTotal,
+      securityCritical,
     };
   }
 }

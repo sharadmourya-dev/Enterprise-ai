@@ -1,12 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { AuditChainVerifier } from './AuditChainVerifier';
 import { AuditLogTable } from './AuditLogTable';
 import { Badge } from '@/components/ui';
 import { ShieldCheck } from 'lucide-react';
 
 export function AuditDashboard() {
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -27,10 +29,10 @@ export function AuditDashboard() {
       </div>
 
       {/* One-Click Cryptographic Verification */}
-      <AuditChainVerifier />
+      <AuditChainVerifier onVerificationComplete={() => setRefreshTrigger((prev) => prev + 1)} />
 
       {/* Immutable Audit Log Table & Filters */}
-      <AuditLogTable />
+      <AuditLogTable externalRefreshKey={refreshTrigger} />
     </div>
   );
 }

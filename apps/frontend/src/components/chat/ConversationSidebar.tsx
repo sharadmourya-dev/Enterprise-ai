@@ -11,7 +11,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { IConversation } from '@enterprise-ai/shared-types';
-import { Button, Modal, Skeleton } from '@/components/ui';
+import { Button, Modal, ModalFooter, Skeleton } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 export interface ConversationSidebarProps {
@@ -231,7 +231,8 @@ export function ConversationSidebar({
       {/* Delete Confirmation Modal */}
       <Modal
         isOpen={Boolean(deletingId)}
-        onClose={() => setDeletingId(null)}
+        onClose={() => !isDeleting && setDeletingId(null)}
+        preventClose={isDeleting}
         title="Delete Conversation"
         description="Are you sure you want to delete this conversation?"
       >
@@ -243,7 +244,7 @@ export function ConversationSidebar({
             </p>
           </div>
 
-          <div className="flex justify-end gap-2.5 pt-2">
+          <ModalFooter>
             <Button
               type="button"
               variant="outline"
@@ -262,7 +263,7 @@ export function ConversationSidebar({
             >
               Delete Conversation
             </Button>
-          </div>
+          </ModalFooter>
         </div>
       </Modal>
     </div>

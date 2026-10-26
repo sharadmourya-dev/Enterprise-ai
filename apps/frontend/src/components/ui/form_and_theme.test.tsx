@@ -3,7 +3,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { Input } from './Input';
 import { Textarea } from './Textarea';
-import { Modal } from './Modal';
+import { Modal, ModalFooter } from './Modal';
+import { Button } from './Button';
 import { Skeleton } from './Skeleton';
 import { ThemeProvider, useTheme } from '../theme/ThemeProvider';
 
@@ -48,6 +49,10 @@ describe('Form Controls, Modal, and Theme', () => {
   });
 
   describe('Modal', () => {
+    beforeEach(() => {
+      document.body.style.overflow = 'unset';
+    });
+
     it('does not render when isOpen is false', () => {
       render(
         <Modal isOpen={false} onClose={jest.fn()} title="Test Dialog">
@@ -68,6 +73,108 @@ describe('Form Controls, Modal, and Theme', () => {
       expect(screen.getByText('Confidential Content')).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: 'Escape' });
+      expect(handleClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('locks body scrolling when open and restores it when closed', () => {
+      const { rerender } = render(
+        <Modal isOpen={true} onClose={jest.fn()} title="Scroll Lock Test">
+          <div>Content</div>
+        </Modal>
+      );
+      expect(document.body.style.overflow).toBe('hidden');
+
+      rerender(
+        <Modal isOpen={false} onClose={jest.fn()} title="Scroll Lock Test">
+          <div>Content</div>
+        </Modal>
+      );
+      expect(document.body.style.overflow).toBe('unset');
+    });
+
+    it('renders scrollable content area with independent overflow', () => {
+      render(
+        <Modal isOpen={true} onClose={jest.fn()} title="Long Content Modal">
+          <div style={{ height: '2000px' }}>Very long policy text</div>
+          <ModalFooter>
+            <Button>Action Button</Button>
+          </ModalFooter>
+        </Modal>
+      );
+
+      const body = screen.getByTestId('modal-body');
+      expect(body).toBeInTheDocument();
+      expect(body).toHaveClass('overflow-y-auto');
+      expect(body).toHaveClass('flex-1');
+      expect(body).toHaveClass('min-h-0');
+
+      const footer = screen.getByTestId('modal-footer');
+      expect(footer).toBeInTheDocument();
+      expect(footer).toHaveClass('sticky');
+      expect(footer).toHaveClass('bottom-0');
+      expect(screen.getByRole('button', { name: /Action Button/i })).toBeInTheDocument();
+    });
+
+    it('renders pinned footer when footer prop is passed', () => {
+      render(
+        <Modal
+          isOpen={true}
+          onClose={jest.fn()}
+          title="Pinned Footer Test"
+          footer={<Button>Direct Pinned Action</Button>}
+        >
+          <div>Body content</div>
+        </Modal>
+      );
+
+      const pinnedFooter = screen.getByTestId('modal-pinned-footer');
+      expect(pinnedFooter).toBeInTheDocument();
+      expect(pinnedFooter).toHaveClass('shrink-0');
+      expect(screen.getByRole('button', { name: /Direct Pinned Action/i })).toBeInTheDocument();
+    });
+
+    it('prevents backdrop click and Escape dismissal when preventClose is true', () => {
+      const handleClose = jest.fn();
+      render(
+        <Modal
+          isOpen={true}
+          onClose={handleClose}
+          preventClose={true}
+          title="In Flight Operation"
+        >
+          <div>Saving changes...</div>
+        </Modal>
+      );
+
+      // Attempt Escape key
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(handleClose).not.toHaveBeenCalled();
+
+      // Attempt backdrop click
+      const overlay = screen.getByTestId('modal-overlay');
+      fireEvent.click(overlay);
+      expect(handleClose).not.toHaveBeenCalled();
+
+      // Close button should be disabled
+      const closeBtn = screen.getByLabelText('Close dialog');
+      expect(closeBtn).toBeDisabled();
+    });
+
+    it('dismisses via backdrop click when enabled and not prevented', () => {
+      const handleClose = jest.fn();
+      render(
+        <Modal
+          isOpen={true}
+          onClose={handleClose}
+          preventClose={false}
+          title="Backdrop Test"
+        >
+          <div>Click outside me</div>
+        </Modal>
+      );
+
+      const overlay = screen.getByTestId('modal-overlay');
+      fireEvent.click(overlay);
       expect(handleClose).toHaveBeenCalledTimes(1);
     });
   });

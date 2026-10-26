@@ -124,7 +124,8 @@ export function FeedbackButtons({
       {/* Negative Feedback Category Modal */}
       <Modal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => !isSubmitting && setModalOpen(false)}
+        preventClose={isSubmitting}
         title="Report an Issue with this Answer"
         description="Your feedback directly guides response grounding and retrieval quality."
       >
@@ -167,7 +168,7 @@ export function FeedbackButtons({
             helperText={`${comment.length}/1000 characters`}
           />
 
-          <div className="flex justify-end gap-2.5 pt-2">
+          <div className="sticky bottom-0 z-10 -mx-5 -mb-5 md:-mx-6 md:-mb-6 mt-6 p-4 px-5 md:px-6 bg-surface-elevated/95 backdrop-blur-xs border-t border-subtle flex items-center justify-end gap-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_16px_rgba(0,0,0,0.25)]">
             <Button
               type="button"
               variant="outline"
@@ -182,6 +183,7 @@ export function FeedbackButtons({
               variant="primary"
               size="sm"
               isLoading={isSubmitting}
+              disabled={isSubmitting}
             >
               Submit Feedback
             </Button>

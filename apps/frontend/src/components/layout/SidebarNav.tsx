@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   LayoutDashboard,
   ShieldAlert,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Badge } from '@/components/ui';
@@ -42,6 +43,12 @@ export const MAIN_NAV_ITEMS: NavItem[] = [
 ];
 
 export const ADMIN_NAV_ITEMS: NavItem[] = [
+  {
+    label: 'User Directory',
+    href: '/admin/users',
+    icon: Users,
+    adminOnly: true,
+  },
   {
     label: 'Analytics & Trends',
     href: '/admin/analytics',

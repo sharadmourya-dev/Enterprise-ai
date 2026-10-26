@@ -1,9 +1,10 @@
 import React from 'react';
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { DocumentStatusBadge } from './DocumentStatusBadge';
 import { DocumentUploadModal } from './DocumentUploadModal';
 import { DocumentList, formatFileSize } from './DocumentList';
+import DocumentsPage from '@/app/documents/page';
 import { ToastProvider } from '@/components/ui';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import { ApiClient } from '@/lib/api-client';
@@ -33,6 +34,14 @@ beforeAll(() => {
     })),
   });
 });
+
+// Mock Next.js navigation
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+  }),
+  usePathname: () => '/documents',
+}));
 
 // Mock AuthContext
 jest.mock('@/context/AuthContext', () => ({
@@ -412,6 +421,232 @@ describe('Document Management & Ingestion UI', () => {
       await waitFor(() => {
         expect(ApiClient.delete).toHaveBeenCalledWith('/api/v1/documents/doc-1');
       });
+    });
+
+    it('renders clean read-only knowledge base layout when isReadOnly is true', async () => {
+      renderWithProviders(<DocumentList onUploadClick={jest.fn()} isReadOnly={true} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Corporate Data Retention Policy')[0]).toBeInTheDocument();
+      });
+
+      // Employee columns: Name, Department, Size, Uploaded
+      expect(screen.getByRole('columnheader', { name: /name/i })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /department/i })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /size/i })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /uploaded/i })).toBeInTheDocument();
+
+      // Administrative columns should NOT be rendered in read-only mode
+      expect(screen.queryByRole('columnheader', { name: /status/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /access/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /chunks/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /actions/i })).not.toBeInTheDocument();
+
+      // Mutation buttons should not be present
+      expect(screen.queryByRole('button', { name: /retry ingestion/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /delete document/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /upload document/i })).not.toBeInTheDocument();
+    });
+
+    it('resets filters when reset button is clicked', async () => {
+      renderWithProviders(<DocumentList onUploadClick={jest.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Corporate Data Retention Policy')[0]).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText(/filter current page/i);
+      fireEvent.change(searchInput, { target: { value: 'Malformed' } });
+
+      const resetBtn = screen.getByRole('button', { name: /reset/i });
+      fireEvent.click(resetBtn);
+
+      expect((searchInput as HTMLInputElement).value).toBe('');
+      expect(screen.getAllByText('Corporate Data Retention Policy')[0]).toBeInTheDocument();
+    });
+  });
+
+  describe('Employee Document Upload Permissions & Page Interactions', () => {
+    it('allows authorized employee with canUpload=true to see Upload Document CTA and open modal', async () => {
+      jest.spyOn(ApiClient, 'get').mockResolvedValue({
+        documents: [],
+        total: 0,
+        page: 1,
+        limit: 10,
+        totalPages: 0,
+      });
+
+      (useAuth as jest.Mock).mockReturnValue({
+        user: { ...mockUser, department: 'Risk Management', role: Role.USER },
+        role: Role.USER,
+        clearance: ClearanceLevel.CONFIDENTIAL,
+        isAdmin: false,
+        canUpload: true,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+
+      renderWithProviders(<DocumentsPage />);
+
+      // Should show Employee title "Knowledge Base"
+      expect(screen.getByRole('heading', { name: /knowledge base/i })).toBeInTheDocument();
+
+      // Should show Upload Document button in header because canUpload is true
+      const uploadBtn = screen.getByRole('button', { name: /upload document/i });
+      expect(uploadBtn).toBeInTheDocument();
+
+      // Clicking Upload Document opens modal
+      fireEvent.click(uploadBtn);
+
+      const dialog = screen.getByRole('dialog', { name: /upload knowledge document/i });
+      expect(dialog).toBeInTheDocument();
+      // Should show department automatically scoped to Risk Management
+      expect(within(dialog).getAllByText('Risk Management').length).toBeGreaterThanOrEqual(1);
+      expect(within(dialog).getByText(/\(automatically assigned to your department\)/i)).toBeInTheDocument();
+      // Specific user IDs input should be hidden from non-admin employee
+      expect(within(dialog).queryByPlaceholderText(/60f8a923/i)).not.toBeInTheDocument();
+    });
+
+    it('hides Upload Document CTA and modal from employee with canUpload=false', async () => {
+      jest.spyOn(ApiClient, 'get').mockResolvedValue({
+        documents: [],
+        total: 0,
+        page: 1,
+        limit: 10,
+        totalPages: 0,
+      });
+
+      (useAuth as jest.Mock).mockReturnValue({
+        user: { ...mockUser, department: 'Risk Management', role: Role.USER },
+        role: Role.USER,
+        clearance: ClearanceLevel.CONFIDENTIAL,
+        isAdmin: false,
+        canUpload: false,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+
+      renderWithProviders(<DocumentsPage />);
+
+      // Should show Employee title "Knowledge Base"
+      expect(screen.getByRole('heading', { name: /knowledge base/i })).toBeInTheDocument();
+
+      // Upload Document button should NOT exist in header or anywhere
+      expect(screen.queryByRole('button', { name: /upload document/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: /upload knowledge document/i })).not.toBeInTheDocument();
+    });
+
+    it('submits employee upload strictly scoped to authenticated department', async () => {
+      const uploadSpy = jest.spyOn(ApiClient, 'upload').mockResolvedValueOnce({
+        documentId: 'doc-emp-101',
+        title: 'Risk Framework 2026',
+        originalFilename: 'framework.pdf',
+        mimeType: DocumentMimeType.PDF,
+        fileSizeBytes: 4096,
+        fileHash: 'hash-risk-1',
+        status: DocumentStatus.QUEUED,
+        createdAt: '2026-10-26T10:00:00Z',
+      });
+
+      (useAuth as jest.Mock).mockReturnValue({
+        user: { ...mockUser, department: 'Risk Management', role: Role.USER },
+        role: Role.USER,
+        clearance: ClearanceLevel.CONFIDENTIAL,
+        isAdmin: false,
+        canUpload: true,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+
+      renderWithProviders(
+        <DocumentUploadModal
+          isOpen={true}
+          onClose={jest.fn()}
+          onSuccess={jest.fn()}
+        />
+      );
+
+      const validPdf = new File(['risk policy content'], 'framework.pdf', {
+        type: 'application/pdf',
+      });
+      Object.defineProperty(validPdf, 'size', { value: 4096 });
+
+      const fileInput = document.getElementById('document-file-upload') as HTMLInputElement;
+      fireEvent.change(fileInput, { target: { files: [validPdf] } });
+
+      const form = fileInput.closest('form')!;
+      fireEvent.submit(form);
+
+      await waitFor(() => {
+        expect(uploadSpy).toHaveBeenCalledTimes(1);
+        const [endpoint, formData] = uploadSpy.mock.calls[0] as [string, FormData];
+        expect(endpoint).toBe('/api/v1/documents/upload');
+        expect(formData.get('allowedDepartments')).toBe('Risk Management');
+      });
+    });
+
+    it('preserves read-only document repository columns for employee who uploads', async () => {
+      jest.spyOn(ApiClient, 'get').mockResolvedValue({
+        documents: [
+          {
+            id: 'doc-emp-1',
+            title: 'Employee Risk Assessment',
+            originalFilename: 'risk_assessment.pdf',
+            mimeType: DocumentMimeType.PDF,
+            fileSizeBytes: 2048,
+            fileHash: 'hash-emp-1',
+            status: DocumentStatus.READY,
+            chunkCount: 12,
+            tokenCount: 2400,
+            currentRevision: 1,
+            uploadedBy: 'user-123',
+            accessControl: {
+              allowedRoles: [],
+              allowedDepartments: ['Risk Management'],
+              minimumClearance: ClearanceLevel.INTERNAL,
+              allowedUserIds: [],
+            },
+            createdAt: '2026-10-26T09:00:00Z',
+            updatedAt: '2026-10-26T09:05:00Z',
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      });
+
+      (useAuth as jest.Mock).mockReturnValue({
+        user: { ...mockUser, department: 'Risk Management', role: Role.USER },
+        role: Role.USER,
+        clearance: ClearanceLevel.CONFIDENTIAL,
+        isAdmin: false,
+        canUpload: true,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+
+      renderWithProviders(<DocumentsPage />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Employee Risk Assessment')[0]).toBeInTheDocument();
+      });
+
+      // Employee table columns are strictly Name, Department, Size, Uploaded
+      expect(screen.getByRole('columnheader', { name: /name/i })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /department/i })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /size/i })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /uploaded/i })).toBeInTheDocument();
+
+      // Administrative management columns (Status, Access, Chunks, Actions) remain suppressed
+      expect(screen.queryByRole('columnheader', { name: /status/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /access/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /chunks/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /actions/i })).not.toBeInTheDocument();
+
+      // Mutation buttons (Delete / Retry) remain suppressed
+      expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
     });
   });
 });

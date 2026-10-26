@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { authenticate } from '../middlewares/auth.middleware.js';
+import { requirePermission } from '../middlewares/rbac.middleware.js';
+import { Permission } from '@enterprise-ai/shared-types';
 import { DocumentController } from '../controllers/document.controller.js';
 import { env } from '../config/env.js';
 
@@ -18,8 +20,13 @@ const upload = multer({
 // All document routes require authentication
 router.use(authenticate);
 
-// 1. Upload a document
-router.post('/upload', upload.single('file'), DocumentController.upload);
+// 1. Upload a document (requires explicit documents:upload permission or admin role)
+router.post(
+  '/upload',
+  requirePermission(Permission.DOCUMENTS_UPLOAD),
+  upload.single('file'),
+  DocumentController.upload
+);
 
 // 2. List visible documents
 router.get('/', DocumentController.list);

@@ -1,20 +1,22 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Search,
   Filter,
   RefreshCw,
-  FileText,
   RotateCcw,
   Trash2,
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
   FolderOpen,
-  Shield,
+  X,
   Building,
-  Users,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  FileText,
 } from 'lucide-react';
 import {
   IDocument,
@@ -24,12 +26,14 @@ import {
 } from '@enterprise-ai/shared-types';
 import { ApiClient } from '@/lib/api-client';
 import { DocumentStatusBadge } from './DocumentStatusBadge';
-import { Button, Badge, Modal, Skeleton, useToast } from '@/components/ui';
+import { Button, Badge, Modal, ModalFooter, Skeleton, useToast } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 export interface DocumentListProps {
   onUploadClick: () => void;
   refreshTrigger?: number;
+  isReadOnly?: boolean;
+  canUpload?: boolean;
 }
 
 export function formatFileSize(bytes: number): string {
@@ -40,7 +44,113 @@ export function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProps) {
+export function formatUploadedDate(dateString: string): string {
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return dateString;
+    return d.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return dateString;
+  }
+}
+
+export function renderFileTypeBadge(filename: string, mimeType?: string) {
+  const lower = (filename || '').toLowerCase();
+  if (lower.endsWith('.pdf') || mimeType === 'application/pdf') {
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/25 shrink-0 select-none font-mono">
+        PDF
+      </span>
+    );
+  }
+  if (
+    lower.endsWith('.docx') ||
+    lower.endsWith('.doc') ||
+    mimeType?.includes('word')
+  ) {
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/25 shrink-0 select-none font-mono">
+        DOCX
+      </span>
+    );
+  }
+  if (lower.endsWith('.txt') || mimeType?.includes('text/plain')) {
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 shrink-0 select-none font-mono">
+        TXT
+      </span>
+    );
+  }
+  return (
+    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-surface-elevated text-secondary border border-subtle shrink-0 select-none font-mono">
+      DOC
+    </span>
+  );
+}
+
+export function renderDepartmentBadge(departments?: string[]) {
+  if (!departments || departments.length === 0) {
+    return (
+      <span className="text-xs text-secondary font-medium">
+        All
+      </span>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {departments.map((dept) => (
+        <span
+          key={dept}
+          className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-surface-elevated text-secondary border border-subtle select-none"
+        >
+          {dept}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export function renderClearanceBadge(clearance?: ClearanceLevel) {
+  const level = clearance || ClearanceLevel.INTERNAL;
+  switch (level) {
+    case ClearanceLevel.RESTRICTED:
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/25 select-none">
+          Restricted
+        </span>
+      );
+    case ClearanceLevel.CONFIDENTIAL:
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-purple-500/10 text-purple-400 border border-purple-500/25 select-none">
+          Confidential
+        </span>
+      );
+    case ClearanceLevel.PUBLIC:
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-elevated text-secondary border border-subtle select-none">
+          Public
+        </span>
+      );
+    case ClearanceLevel.INTERNAL:
+    default:
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-500/10 text-sky-400 border border-sky-500/25 select-none">
+          Internal
+        </span>
+      );
+  }
+}
+
+export function DocumentList({
+  onUploadClick,
+  refreshTrigger,
+  isReadOnly = false,
+  canUpload = false,
+}: DocumentListProps) {
   const [documents, setDocuments] = useState<IDocument[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -163,35 +273,130 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
     }
   };
 
+  // Reset all active filters
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('ALL');
+    setDepartmentFilter('');
+    setPage(1);
+  };
+
   // Client-side search filtering on active page
-  const filteredDocuments = documents.filter((doc) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
-    return (
-      doc.title.toLowerCase().includes(q) ||
-      doc.originalFilename.toLowerCase().includes(q) ||
-      (doc.accessControl?.allowedDepartments || []).some((d) => d.toLowerCase().includes(q))
-    );
-  });
+  const filteredDocuments = useMemo(() => {
+    return documents.filter((doc) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase().trim();
+      return (
+        doc.title.toLowerCase().includes(q) ||
+        doc.originalFilename.toLowerCase().includes(q) ||
+        (doc.accessControl?.allowedDepartments || []).some((d) =>
+          d.toLowerCase().includes(q)
+        )
+      );
+    });
+  }, [documents, searchQuery]);
+
+  // Derive department options dynamically
+  const departmentOptions = useMemo(() => {
+    const depts = new Set<string>();
+    ['HR', 'IT', 'Finance', 'Operations', 'Compliance'].forEach((d) => depts.add(d));
+    documents.forEach((d) => {
+      (d.accessControl?.allowedDepartments || []).forEach((dept) => depts.add(dept));
+    });
+    return Array.from(depts).sort();
+  }, [documents]);
+
+  // Compute status metrics directly from real API responses
+  const readyCount = useMemo(
+    () =>
+      documents.filter(
+        (d) => d.status === DocumentStatus.READY || d.status === DocumentStatus.INDEXED
+      ).length,
+    [documents]
+  );
+  const processingCount = useMemo(
+    () =>
+      documents.filter(
+        (d) =>
+          d.status === DocumentStatus.PROCESSING ||
+          d.status === DocumentStatus.INDEXING ||
+          d.status === DocumentStatus.QUEUED
+      ).length,
+    [documents]
+  );
+  const failedCount = useMemo(
+    () => documents.filter((d) => d.status === DocumentStatus.FAILED).length,
+    [documents]
+  );
+
+  const hasActiveFilters = searchQuery.trim() !== '' || statusFilter !== 'ALL' || departmentFilter !== '';
 
   return (
     <div className="space-y-4">
+      {/* Real Summary Metrics Bar (Admins only) */}
+      {!isReadOnly && !isLoading && (
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-surface border border-subtle text-secondary font-medium">
+            <FileText className="w-3.5 h-3.5 text-muted" />
+            <span>Total:</span>
+            <strong className="text-primary">{total}</strong>
+          </span>
+
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span>Ready:</span>
+            <strong>{readyCount}</strong>
+          </span>
+
+          {processingCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+              <span>Processing:</span>
+              <strong>{processingCount}</strong>
+            </span>
+          )}
+
+          {failedCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium">
+              <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+              <span>Failed:</span>
+              <strong>{failedCount}</strong>
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Search, Filter, and Action Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface p-4 rounded-xl border border-subtle shadow-xs">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface p-3.5 sm:p-4 rounded-xl border border-subtle shadow-xs">
         <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-          {/* Search Box with explicit current-page filter scope */}
+          {/* Search Box */}
           <div className="relative flex-1 flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
               <input
                 type="text"
-                placeholder="Filter current page by title, filename, or department..."
+                placeholder={
+                  isReadOnly
+                    ? 'Search documents... (filter current page by title, filename, or department)'
+                    : 'Search documents, departments... (filter current page by title, filename, or department)'
+                }
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 aria-label="Filter current page"
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-subtle bg-surface-elevated text-xs text-primary placeholder:text-muted outline-none focus:ring-2 focus:ring-brand-primary"
+                className="w-full pl-9 pr-8 py-2 rounded-lg border border-subtle bg-surface-elevated text-xs text-primary placeholder:text-muted outline-none focus:ring-2 focus:ring-brand-primary min-h-[38px] transition-colors"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search input"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-primary p-0.5 rounded"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
+
             {searchQuery.trim() && (
               <span
                 data-testid="page-filter-indicator"
@@ -202,29 +407,61 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
             )}
           </div>
 
-          {/* Status Filter */}
+          {/* Status Filter (Admins only) */}
+          {!isReadOnly && (
+            <div className="flex items-center gap-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                aria-label="Filter by document status"
+                className="px-3 py-2 rounded-lg border border-subtle bg-surface-elevated text-xs text-primary outline-none focus:ring-2 focus:ring-brand-primary min-h-[38px] cursor-pointer"
+              >
+                <option value="ALL">All Statuses</option>
+                <option value={DocumentStatus.READY}>Ready</option>
+                <option value={DocumentStatus.PROCESSING}>Processing</option>
+                <option value={DocumentStatus.QUEUED}>Queued</option>
+                <option value={DocumentStatus.FAILED}>Failed</option>
+              </select>
+            </div>
+          )}
+
+          {/* Department Filter */}
           <div className="flex items-center gap-2">
-            <Filter className="w-3.5 h-3.5 text-muted shrink-0 hidden sm:inline-block" />
             <select
-              value={statusFilter}
+              value={departmentFilter}
               onChange={(e) => {
-                setStatusFilter(e.target.value);
+                setDepartmentFilter(e.target.value);
                 setPage(1);
               }}
-              aria-label="Filter by document status"
-              className="px-3 py-2 rounded-lg border border-subtle bg-surface-elevated text-xs text-primary outline-none focus:ring-2 focus:ring-brand-primary min-h-[36px]"
+              aria-label="Filter by department"
+              className="px-3 py-2 rounded-lg border border-subtle bg-surface-elevated text-xs text-primary outline-none focus:ring-2 focus:ring-brand-primary min-h-[38px] cursor-pointer"
             >
-              <option value="ALL">All Statuses</option>
-              <option value={DocumentStatus.QUEUED}>Queued</option>
-              <option value={DocumentStatus.PROCESSING}>Processing</option>
-              <option value={DocumentStatus.READY}>Ready</option>
-              <option value={DocumentStatus.FAILED}>Failed</option>
+              <option value="">All Departments</option>
+              {departmentOptions.map((dept) => (
+                <option key={dept} value={dept}>
+                  {dept}
+                </option>
+              ))}
             </select>
           </div>
+
+          {/* Reset Filters button */}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="px-2.5 py-1.5 rounded-lg text-xs text-secondary hover:text-primary hover:bg-surface-elevated border border-subtle transition-colors shrink-0"
+            >
+              Reset
+            </button>
+          )}
         </div>
 
-        {/* Refresh & Upload Action Buttons */}
-        <div className="flex items-center gap-2">
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2 self-end sm:self-auto">
           <Button
             variant="outline"
             size="sm"
@@ -237,14 +474,16 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
             Refresh
           </Button>
 
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={onUploadClick}
-            className="whitespace-nowrap"
-          >
-            Upload Document
-          </Button>
+          {!isReadOnly && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onUploadClick}
+              className="whitespace-nowrap"
+            >
+              Upload Document
+            </Button>
+          )}
         </div>
       </div>
 
@@ -262,16 +501,26 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
           <div className="text-center py-16 px-4 space-y-3">
             <FolderOpen className="w-12 h-12 mx-auto text-muted/60" />
             <h3 className="text-sm font-semibold text-primary">
-              {searchQuery || statusFilter !== 'ALL'
+              {hasActiveFilters
                 ? 'No documents match your filter criteria'
                 : 'No documents in repository yet'}
             </h3>
             <p className="text-xs text-secondary max-w-sm mx-auto">
-              {searchQuery || statusFilter !== 'ALL'
-                ? 'Try adjusting your search terms or clearing status filters.'
+              {hasActiveFilters
+                ? 'Try adjusting your search terms or clearing status and department filters.'
                 : 'Upload policy handbooks, technical runbooks, and SOPs to activate conversational search.'}
             </p>
-            {!searchQuery && statusFilter === 'ALL' && (
+            {hasActiveFilters && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResetFilters}
+                className="mt-2"
+              >
+                Clear Filters
+              </Button>
+            )}
+            {!hasActiveFilters && (canUpload || !isReadOnly) && (
               <Button
                 variant="primary"
                 size="sm"
@@ -289,14 +538,14 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
               <table className="w-full text-left text-xs">
                 <thead className="bg-surface-elevated/70 border-b border-subtle text-muted font-semibold uppercase tracking-wider select-none">
                   <tr>
-                    <th className="py-3 px-4">Document Title</th>
-                    <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3">Clearance</th>
-                    <th className="py-3 px-3">Scope / Access</th>
+                    <th className="py-3 px-4">Name</th>
+                    {!isReadOnly && <th className="py-3 px-3">Status</th>}
+                    <th className="py-3 px-3">Department</th>
+                    {!isReadOnly && <th className="py-3 px-3">Access</th>}
                     <th className="py-3 px-3">Size</th>
-                    <th className="py-3 px-3">Chunks</th>
+                    {!isReadOnly && <th className="py-3 px-3">Chunks</th>}
                     <th className="py-3 px-3">Uploaded</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
+                    {!isReadOnly && <th className="py-3 px-4 text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-subtle">
@@ -309,13 +558,11 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
                         key={doc.id}
                         className="hover:bg-surface-elevated/40 transition-colors group"
                       >
-                        {/* Title and Filename */}
+                        {/* Title and Filename with File Type Badge */}
                         <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-brand-primary/10 text-brand-primary flex items-center justify-center shrink-0">
-                              <FileText className="w-4 h-4" />
-                            </div>
-                            <div className="min-w-0 max-w-[240px]">
+                          <div className="flex items-center gap-2.5">
+                            {renderFileTypeBadge(doc.originalFilename, doc.mimeType)}
+                            <div className="min-w-0 max-w-[260px]">
                               <p className="font-semibold text-primary truncate leading-tight">
                                 {doc.title}
                               </p>
@@ -326,89 +573,76 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
                           </div>
                         </td>
 
-                        {/* Status */}
+                        {/* Status (Admins only) */}
+                        {!isReadOnly && (
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            <DocumentStatusBadge
+                              status={doc.status}
+                              errorMessage={doc.errorMessage}
+                            />
+                          </td>
+                        )}
+
+                        {/* Department */}
                         <td className="py-3.5 px-3 whitespace-nowrap">
-                          <DocumentStatusBadge
-                            status={doc.status}
-                            errorMessage={doc.errorMessage}
-                          />
+                          {renderDepartmentBadge(doc.accessControl?.allowedDepartments)}
                         </td>
 
-                        {/* Minimum Clearance */}
-                        <td className="py-3.5 px-3 whitespace-nowrap">
-                          <Badge variant="info" size="sm">
-                            <Shield className="w-3 h-3 mr-1" />
-                            {doc.accessControl?.minimumClearance || ClearanceLevel.INTERNAL}
-                          </Badge>
-                        </td>
-
-                        {/* Scope / Access */}
-                        <td className="py-3.5 px-3">
-                          <div className="flex items-center gap-1.5 flex-wrap max-w-[200px]">
-                            {doc.accessControl?.allowedDepartments?.length > 0 ? (
-                              doc.accessControl.allowedDepartments.map((dept) => (
-                                <span
-                                  key={dept}
-                                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-surface-elevated text-secondary border border-subtle truncate max-w-[120px]"
-                                >
-                                  <Building className="w-2.5 h-2.5 mr-1 text-muted" />
-                                  {dept}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-[11px] text-muted italic">All Departments</span>
-                            )}
-                          </div>
-                        </td>
+                        {/* Minimum Clearance / Access (Admins only) */}
+                        {!isReadOnly && (
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            {renderClearanceBadge(doc.accessControl?.minimumClearance)}
+                          </td>
+                        )}
 
                         {/* Size */}
                         <td className="py-3.5 px-3 text-secondary font-mono whitespace-nowrap">
                           {formatFileSize(doc.fileSizeBytes)}
                         </td>
 
-                        {/* Chunk Count */}
-                        <td className="py-3.5 px-3 text-secondary whitespace-nowrap">
-                          {doc.chunkCount > 0 ? `${doc.chunkCount} chunks` : '—'}
-                        </td>
+                        {/* Chunk Count (Admins only) */}
+                        {!isReadOnly && (
+                          <td className="py-3.5 px-3 text-secondary whitespace-nowrap">
+                            {doc.chunkCount > 0 ? doc.chunkCount : '—'}
+                          </td>
+                        )}
 
                         {/* Upload Date */}
                         <td className="py-3.5 px-3 text-muted whitespace-nowrap">
-                          {new Date(doc.createdAt).toLocaleDateString([], {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                          })}
+                          {formatUploadedDate(doc.createdAt)}
                         </td>
 
-                        {/* Actions */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {canRetry && (
+                        {/* Actions (Admins only) */}
+                        {!isReadOnly && (
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {canRetry && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRetry(doc)}
+                                  disabled={retryingId === doc.id}
+                                  aria-label={`Retry ingestion for ${doc.title}`}
+                                  title="Retry processing"
+                                  className="p-1.5 rounded-lg hover:bg-surface-elevated text-status-warning hover:text-status-warning transition-colors min-h-[32px] min-w-[32px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                                >
+                                  <RotateCcw
+                                    className={cn('w-4 h-4', retryingId === doc.id && 'animate-spin')}
+                                  />
+                                </button>
+                              )}
+
                               <button
                                 type="button"
-                                onClick={() => handleRetry(doc)}
-                                disabled={retryingId === doc.id}
-                                aria-label={`Retry ingestion for ${doc.title}`}
-                                title="Retry processing"
-                                className="p-1.5 rounded-lg hover:bg-surface-elevated text-status-warning hover:text-status-warning transition-colors min-h-[32px] min-w-[32px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                                onClick={() => setDeletingDoc(doc)}
+                                aria-label={`Delete document: ${doc.title}`}
+                                title="Delete document and vector indexes"
+                                className="p-1.5 rounded-lg hover:bg-status-error/10 text-muted hover:text-status-error transition-colors min-h-[32px] min-w-[32px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
                               >
-                                <RotateCcw
-                                  className={cn('w-4 h-4', retryingId === doc.id && 'animate-spin')}
-                                />
+                                <Trash2 className="w-4 h-4" />
                               </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() => setDeletingDoc(doc)}
-                              aria-label={`Delete document: ${doc.title}`}
-                              title="Delete document and vector indexes"
-                              className="p-1.5 rounded-lg hover:bg-status-error/10 text-muted hover:text-status-error transition-colors min-h-[32px] min-w-[32px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -424,10 +658,8 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
                 return (
                   <div key={doc.id} className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-brand-primary/10 text-brand-primary flex items-center justify-center shrink-0 mt-0.5">
-                          <FileText className="w-4 h-4" />
-                        </div>
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        {renderFileTypeBadge(doc.originalFilename, doc.mimeType)}
                         <div className="min-w-0">
                           <p className="font-semibold text-sm text-primary break-words leading-tight">
                             {doc.title}
@@ -438,65 +670,71 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
                         </div>
                       </div>
 
-                      <DocumentStatusBadge
-                        status={doc.status}
-                        errorMessage={doc.errorMessage}
-                      />
+                      {!isReadOnly && (
+                        <DocumentStatusBadge
+                          status={doc.status}
+                          errorMessage={doc.errorMessage}
+                        />
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted">
-                      <Badge variant="info" size="sm">
-                        <Shield className="w-3 h-3 mr-1" />
-                        {doc.accessControl?.minimumClearance || ClearanceLevel.INTERNAL}
-                      </Badge>
-
+                      <span>{renderDepartmentBadge(doc.accessControl?.allowedDepartments)}</span>
+                      <span>&bull;</span>
+                      {!isReadOnly && (
+                        <>
+                          <span>{renderClearanceBadge(doc.accessControl?.minimumClearance)}</span>
+                          <span>&bull;</span>
+                        </>
+                      )}
                       <span>{formatFileSize(doc.fileSizeBytes)}</span>
+                      {!isReadOnly && (
+                        <>
+                          <span>&bull;</span>
+                          <span>{doc.chunkCount > 0 ? `${doc.chunkCount} chunks` : '—'}</span>
+                        </>
+                      )}
                       <span>&bull;</span>
-                      <span>{doc.chunkCount > 0 ? `${doc.chunkCount} chunks` : 'Queued'}</span>
-                      <span>&bull;</span>
-                      <span>
-                        {new Date(doc.createdAt).toLocaleDateString([], {
-                          month: 'short',
-                          day: 'numeric',
-                        })}
-                      </span>
+                      <span>{formatUploadedDate(doc.createdAt)}</span>
                     </div>
 
-                    {isFailed && doc.errorMessage && (
+                    {!isReadOnly && isFailed && doc.errorMessage && (
                       <div className="p-2.5 rounded-lg bg-status-error/10 text-status-error text-xs leading-relaxed">
                         {doc.errorMessage}
                       </div>
                     )}
 
-                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-subtle/50">
-                      {isFailed && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRetry(doc)}
-                          isLoading={retryingId === doc.id}
-                          leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
-                        >
-                          Retry Ingestion
-                        </Button>
-                      )}
+                    {!isReadOnly && (
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-subtle/50">
+                        {isFailed && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRetry(doc)}
+                            isLoading={retryingId === doc.id}
+                            leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
+                          >
+                            Retry Ingestion
+                          </Button>
+                        )}
 
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeletingDoc(doc)}
-                        leftIcon={<Trash2 className="w-3.5 h-3.5 text-status-error" />}
-                        className="text-status-error hover:bg-status-error/10"
-                      >
-                        Delete
-                      </Button>
-                    </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeletingDoc(doc)}
+                          leftIcon={<Trash2 className="w-3.5 h-3.5 text-status-error" />}
+                          className="text-status-error hover:bg-status-error/10"
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
-            {/* Pagination Controls */}
+            {/* Pagination Controls matching < 1 2 3 > */}
             <div className="p-4 border-t border-subtle bg-surface-elevated/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-secondary">
               <span className="order-2 sm:order-1">
                 Showing{' '}
@@ -506,32 +744,48 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
                 of <strong className="text-primary">{total}</strong> documents
               </span>
 
-              <div className="flex items-center gap-2 order-1 sm:order-2">
-                <Button
-                  variant="outline"
-                  size="sm"
+              <div className="flex items-center gap-1.5 order-1 sm:order-2">
+                <button
+                  type="button"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1}
-                  leftIcon={<ChevronLeft className="w-3.5 h-3.5" />}
                   aria-label="Previous page"
+                  className="p-1.5 rounded-lg border border-subtle hover:bg-surface-elevated disabled:opacity-40 disabled:pointer-events-none text-secondary transition-colors"
                 >
-                  Previous
-                </Button>
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
 
-                <span className="px-2 font-medium">
-                  {page} / {Math.max(1, totalPages)}
-                </span>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
+                  const pNum = idx + 1;
+                  const isActive = pNum === page;
+                  return (
+                    <button
+                      key={pNum}
+                      type="button"
+                      onClick={() => setPage(pNum)}
+                      aria-label={`Page ${pNum}`}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={cn(
+                        'w-7 h-7 rounded-lg text-xs font-medium flex items-center justify-center transition-colors',
+                        isActive
+                          ? 'bg-brand-primary text-white shadow-xs font-semibold'
+                          : 'text-secondary hover:text-primary hover:bg-surface-elevated border border-transparent'
+                      )}
+                    >
+                      {pNum}
+                    </button>
+                  );
+                })}
 
-                <Button
-                  variant="outline"
-                  size="sm"
+                <button
+                  type="button"
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
-                  rightIcon={<ChevronRight className="w-3.5 h-3.5" />}
                   aria-label="Next page"
+                  className="p-1.5 rounded-lg border border-subtle hover:bg-surface-elevated disabled:opacity-40 disabled:pointer-events-none text-secondary transition-colors"
                 >
-                  Next
-                </Button>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
           </>
@@ -541,8 +795,9 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
       {/* Delete Confirmation Modal */}
       <Modal
         isOpen={Boolean(deletingDoc)}
-        onClose={() => setDeletingDoc(null)}
-        title="Delete Document &amp; Vector Indexes"
+        onClose={() => !isDeleting && setDeletingDoc(null)}
+        preventClose={isDeleting}
+        title="Delete Document & Vector Indexes"
         description="Are you sure you want to delete this document from the knowledge base?"
       >
         <div className="space-y-4">
@@ -558,7 +813,7 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
             </div>
           </div>
 
-          <div className="flex justify-end gap-2.5 pt-2">
+          <ModalFooter>
             <Button
               type="button"
               variant="outline"
@@ -578,7 +833,7 @@ export function DocumentList({ onUploadClick, refreshTrigger }: DocumentListProp
             >
               Confirm Deletion
             </Button>
-          </div>
+          </ModalFooter>
         </div>
       </Modal>
     </div>

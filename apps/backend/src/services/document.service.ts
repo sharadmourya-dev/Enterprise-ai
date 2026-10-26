@@ -11,9 +11,12 @@ import {
   AuditAction,
   AuditResourceType,
   IJwtPayload,
+  Permission,
+  hasPermission,
 } from '@enterprise-ai/shared-types';
 import { DocumentModel, IDocumentEntity } from '../models/Document.model.js';
 import { DocumentChunkModel } from '../models/DocumentChunk.model.js';
+import { UserModel } from '../models/User.model.js';
 import { StorageService } from './storage.service.js';
 import { FileValidator } from './parsers/file-validator.js';
 import { QdrantService } from './qdrant.service.js';
@@ -41,6 +44,25 @@ export class DocumentService {
     customTitle?: string,
     clientMeta?: { ip?: string; userAgent?: string }
   ): Promise<IDocumentUploadResponse> {
+    // 0. Strict permission enforcement: Verify user holds DOCUMENTS_UPLOAD permission
+    if (!hasPermission(user, Permission.DOCUMENTS_UPLOAD)) {
+      throw new ForbiddenError(
+        `Access denied. You do not possess the required permission: '${Permission.DOCUMENTS_UPLOAD}'.`,
+        'INSUFFICIENT_ROLE_PERMISSIONS'
+      );
+    }
+
+    // Live verification for standard users to protect against stale/revoked JWT claims
+    if (user.role === Role.USER) {
+      const liveUser = await UserModel.findById(user.sub).select('permissions role');
+      if (liveUser && !hasPermission(liveUser, Permission.DOCUMENTS_UPLOAD)) {
+        throw new ForbiddenError(
+          `Access denied. Your active permissions do not include: '${Permission.DOCUMENTS_UPLOAD}'.`,
+          'INSUFFICIENT_ROLE_PERMISSIONS'
+        );
+      }
+    }
+
     // 1. Strict validation of size, extension, declared MIME, and binary magic bytes
     const validated = FileValidator.validate(fileBuffer, originalFilename, declaredMimeType);
 
@@ -52,6 +74,23 @@ export class DocumentService {
     });
 
     if (existingDoc) {
+      await AuditService.log({
+        userId: user.sub,
+        action: AuditAction.DOC_UPLOAD,
+        resourceType: AuditResourceType.DOCUMENT,
+        resourceId: existingDoc._id.toString(),
+        ipAddress: clientMeta?.ip,
+        userAgent: clientMeta?.userAgent,
+        status: 'denied',
+        details: {
+          rejectionReason: 'duplicate_content_hash',
+          existingDocumentId: existingDoc._id.toString(),
+          existingTitle: existingDoc.title,
+          filename: originalFilename,
+          fileHash: validated.fileHash,
+        },
+      });
+
       throw new ConflictError(
         `A document with identical content has already been uploaded ('${existingDoc.title}') with status: ${existingDoc.status}.`
       );
@@ -62,24 +101,64 @@ export class DocumentService {
 
     try {
       // 4. Construct Access Control parameters & prevent ACL manipulation by non-admins
+      const isPrivileged = user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN;
       const requestedClearance = accessControlInput?.minimumClearance || ClearanceLevel.INTERNAL;
       const userClearanceRank = CLEARANCE_RANK[user.securityClearance] ?? 0;
       const requestedClearanceRank = CLEARANCE_RANK[requestedClearance] ?? 1;
 
-      if (user.role !== Role.SUPER_ADMIN && user.role !== Role.ADMIN) {
+      let allowedDepartments: string[] = [];
+
+      if (!isPrivileged) {
         // Clearance privilege check: user cannot assign clearance higher than their own
         if (requestedClearanceRank > userClearanceRank) {
+          await AuditService.log({
+            userId: user.sub,
+            action: AuditAction.AUTH_ACCESS_DENIED,
+            resourceType: AuditResourceType.DOCUMENT,
+            resourceId: 'upload_clearance_escalation',
+            ipAddress: clientMeta?.ip,
+            userAgent: clientMeta?.userAgent,
+            status: 'denied',
+            details: {
+              reason: 'clearance_escalation_attempt',
+              requestedClearance,
+              userClearance: user.securityClearance,
+            },
+          });
           throw new ForbiddenError(
             `Cannot assign clearance '${requestedClearance}' exceeding your own clearance level '${user.securityClearance}'.`
           );
         }
 
-        // Department manipulation check: user cannot assign documents to foreign departments
+        // Safe clearance check: standard employees cannot assign public clearance
+        if (requestedClearance === ClearanceLevel.PUBLIC && user.securityClearance !== ClearanceLevel.PUBLIC) {
+          await AuditService.log({
+            userId: user.sub,
+            action: AuditAction.AUTH_ACCESS_DENIED,
+            resourceType: AuditResourceType.DOCUMENT,
+            resourceId: 'upload_public_restricted',
+            ipAddress: clientMeta?.ip,
+            userAgent: clientMeta?.userAgent,
+            status: 'denied',
+            details: {
+              reason: 'employee_public_upload_forbidden',
+            },
+          });
+          throw new ForbiddenError('Standard employees cannot upload public documents.');
+        }
+
+        // Department manipulation check & safe default:
+        // Do not default uploads to all departments (wildcard []).
+        // Non-admin uploads default to their own department!
         if (accessControlInput?.allowedDepartments && accessControlInput.allowedDepartments.length > 0) {
           const invalidDept = accessControlInput.allowedDepartments.find((d) => d !== user.department);
           if (invalidDept) {
             throw new ForbiddenError(`Cannot assign document to foreign department '${invalidDept}'.`);
           }
+          allowedDepartments = accessControlInput.allowedDepartments;
+        } else {
+          // Safe default: strictly bound to employee's own department
+          allowedDepartments = [user.department];
         }
 
         // Role manipulation check: user cannot assign roles they do not possess
@@ -94,11 +173,14 @@ export class DocumentService {
         if (accessControlInput?.allowedUserIds && accessControlInput.allowedUserIds.length > 0) {
           throw new ForbiddenError('Only administrators can configure user-specific access restrictions.');
         }
+      } else {
+        // Admins can configure explicit or wildcard departments
+        allowedDepartments = accessControlInput?.allowedDepartments || [];
       }
 
       const accessControl = {
         allowedRoles: accessControlInput?.allowedRoles || [],
-        allowedDepartments: accessControlInput?.allowedDepartments || [],
+        allowedDepartments,
         minimumClearance: requestedClearance,
         allowedUserIds: accessControlInput?.allowedUserIds
           ? accessControlInput.allowedUserIds.map((id) => new mongoose.Types.ObjectId(id))
@@ -361,6 +443,19 @@ export class DocumentService {
     const isPrivileged = user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
 
     if (!isOwner && !isPrivileged) {
+      await AuditService.log({
+        userId: user.sub,
+        action: AuditAction.AUTH_ACCESS_DENIED,
+        resourceType: AuditResourceType.DOCUMENT,
+        resourceId: id,
+        ipAddress: clientMeta?.ip,
+        userAgent: clientMeta?.userAgent,
+        status: 'denied',
+        details: {
+          reason: 'unauthorized_deletion_attempt',
+          documentOwner: document.uploadedBy.toString(),
+        },
+      });
       throw new ForbiddenError('You are not authorized to delete this document');
     }
 

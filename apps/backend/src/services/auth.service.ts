@@ -416,6 +416,7 @@ export class AuthService {
       role: user.role,
       department: user.department,
       securityClearance: user.securityClearance,
+      permissions: user.permissions || [],
       sessionId,
     };
 
@@ -484,6 +485,7 @@ export class AuthService {
       role: user.role,
       department: user.department,
       securityClearance: user.securityClearance,
+      permissions: user.permissions || [],
       isActive: user.isActive,
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString(),
