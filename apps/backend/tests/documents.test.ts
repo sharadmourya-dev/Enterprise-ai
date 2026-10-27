@@ -42,7 +42,7 @@ describe('Document Upload, Lifecycle & Authorization API Integration Tests', () 
     userConfidentialId,
     Role.USER,
     ClearanceLevel.CONFIDENTIAL,
-    'Executive',
+    'Engineering',
     [Permission.DOCUMENTS_UPLOAD]
   );
   const adminToken = createTestToken(
@@ -224,6 +224,9 @@ describe('Document Upload, Lifecycle & Authorization API Integration Tests', () 
         .expect(200);
 
       expect(carolList.body.data.documents.length).toBe(2);
+      const carolTitles = carolList.body.data.documents.map((d: any) => d.title);
+      expect(carolTitles).toContain('Engineering Handbook');
+      expect(carolTitles).toContain('Financial Projections');
     });
 
     it('5. Listing documents filters out documents restricted to other departments, roles, or users even with matching clearance', async () => {
