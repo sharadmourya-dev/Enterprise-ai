@@ -8,12 +8,16 @@ import adminAnalyticsRoutes from './admin-analytics.routes.js';
 import adminAuditRoutes from './admin-audit.routes.js';
 import adminUserRoutes from './admin-user.routes.js';
 import feedbackRoutes from './feedback.routes.js';
+import { setupSwagger } from '../docs/swagger.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import { requireRole } from '../middlewares/rbac.middleware.js';
 import { requireClearance } from '../middlewares/clearance.middleware.js';
 import { Role, ClearanceLevel } from '@enterprise-ai/shared-types';
 
 const router = Router();
+
+// Swagger API Documentation UI & raw OpenAPI specification
+setupSwagger(router);
 
 // Health routes
 router.use('/health', healthRoutes);

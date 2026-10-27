@@ -1,0 +1,29 @@
+APEX ENTERPRISE SYSTEMS - CORPORATE DATA RETENTION POLICY
+Document ID: POL-SEC-2026-04
+Classification: Internal Business Document
+Effective Date: January 15, 2026
+Version: 3.2
+
+1. PURPOSE AND SCOPE
+This policy defines mandatory data retention schedules, archival procedures, and disposal protocols for digital and physical records across Apex Enterprise Systems. All employees, contractors, and departments must adhere strictly to these schedules to maintain legal compliance, operational integrity, and data minimization principles.
+
+2. RECORD RETENTION SCHEDULES
+Records must be retained according to the following defined timelines:
+- Financial and Accounting Records: Retained for seven (7) fiscal years following the close of the relevant fiscal period. Includes invoices, ledger entries, tax filings, and audit trails.
+- Personnel and Employee Records: Retained for five (5) years following the employee's formal termination or separation date.
+- Information Security and System Audit Logs: Retained in tamper-evident storage for a minimum of 365 days (1 year) online, followed by two (2) years of immutable cold archive.
+- Customer Support and Chat Telemetry Logs: Retained for ninety (90) days, after which personally identifiable information (PII) is automatically redacted or purged.
+- General Corporate Correspondence and Communications: Retained for three (3) years unless subject to an active legal litigation hold.
+
+3. LEGAL LITIGATION HOLDS
+Upon notification by General Counsel or the Compliance Office of pending litigation, government inquiry, or formal investigation, routine disposal schedules are immediately suspended for all relevant records. Destruction or alteration of records subject to a legal hold is strictly forbidden and constitutes grounds for disciplinary termination.
+
+4. DATA DISPOSAL AND SANITIZATION
+Upon expiration of mandatory retention periods:
+- Digital data stored in cloud or on-premise relational databases must be cryptographically deleted or sanitized in accordance with NIST SP 800-88 Rev 1 guidelines.
+- Physical documents containing confidential information must be destroyed via cross-cut shredding with formal certificates of destruction issued.
+
+5. ROLES AND RESPONSIBILITIES
+- Compliance Officers: Responsible for annual auditing of retention schedules and verification of legal hold execution.
+- System Administrators: Responsible for automated database archival policies and immutable log storage verification.
+- Department Managers: Responsible for ensuring departmental knowledge documents are updated and obsolete drafts are purged annually.
