@@ -63,6 +63,7 @@ export interface IAuditVerificationResult {
   brokenPreviousHashCount: number;
   sequenceGapCount: number;
   firstInvalidSequence: number | null;
+  atSequence?: number | null;
   error?: string | null;
   details?: Record<string, unknown> | null;
   verifiedAt: string;

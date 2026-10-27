@@ -213,6 +213,7 @@ describe('Audit Service & Verification Unit Tests', () => {
       expect(result.isValid).toBe(false);
       expect(result.invalidSignatureCount).toBe(1);
       expect(result.firstInvalidSequence).toBe(2);
+      expect(result.atSequence).toBe(2);
       expect(result.error).toContain('TAMPER_DETECTED_INVALID_HMAC');
     });
 
@@ -276,6 +277,7 @@ describe('Audit Service & Verification Unit Tests', () => {
       expect(result.isValid).toBe(false);
       expect(result.brokenPreviousHashCount).toBe(1);
       expect(result.firstInvalidSequence).toBe(2);
+      expect(result.atSequence).toBe(2);
       expect(result.error).toContain('BROKEN_HASH_LINK');
     });
 
@@ -340,6 +342,7 @@ describe('Audit Service & Verification Unit Tests', () => {
       expect(result.isValid).toBe(false);
       expect(result.sequenceGapCount).toBe(1);
       expect(result.firstInvalidSequence).toBe(3);
+      expect(result.atSequence).toBe(3);
       expect(result.error).toContain('SEQUENCE_GAP_OR_REORDERED');
     });
   });

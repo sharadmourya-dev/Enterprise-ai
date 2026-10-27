@@ -126,6 +126,7 @@ export class AdminAuditController {
           brokenPreviousHashCount: verification.brokenPreviousHashCount,
           sequenceGapCount: verification.sequenceGapCount,
           firstInvalidSequence: verification.firstInvalidSequence,
+          atSequence: verification.atSequence,
         },
       });
 
