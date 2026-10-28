@@ -12,6 +12,7 @@ import {
   Clock,
   Sparkles,
   ShieldCheck,
+  Info,
 } from 'lucide-react';
 import { IMessage, MessageSender } from '@enterprise-ai/shared-types';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -52,6 +53,11 @@ export function MessageBubble({
   };
 
   const citations: CitationItem[] = (message.citations as unknown as CitationItem[]) || [];
+  const isInsufficient =
+    (message as any).insufficientEvidence ||
+    /insufficient information|do not have sufficient|no relevant documents|cannot answer|not enough information/i.test(
+      message.content || ''
+    );
 
   if (isUser) {
     return (
@@ -154,6 +160,16 @@ export function MessageBubble({
           </div>
         )}
 
+        {/* Insufficient Evidence Notice */}
+        {!isFailed && !isStreaming && isInsufficient && (
+          <div className="p-3 rounded-xl border border-status-warning/30 bg-status-warning/10 text-status-warning text-xs flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="leading-relaxed">
+              Insufficient supporting documentation found in enterprise repository to answer this question with verified citations.
+            </span>
+          </div>
+        )}
+
         {/* Sources & Evidence Ribbon beneath response */}
         {!isFailed && citations.length > 0 && (
           <div className="pt-3 border-t border-subtle/70 mt-3 space-y-2">
@@ -183,6 +199,14 @@ export function MessageBubble({
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Zero Citations Notice (when not flagged as insufficient) */}
+        {!isFailed && !isStreaming && !isInsufficient && citations.length === 0 && (
+          <div className="pt-2 text-[11px] text-muted flex items-center gap-1.5">
+            <Info className="w-3 h-3 text-muted shrink-0" />
+            <span>No repository documents were cited for this response.</span>
           </div>
         )}
 

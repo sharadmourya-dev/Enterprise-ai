@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import {
   Search,
   Filter,
@@ -34,6 +35,7 @@ export interface DocumentListProps {
   refreshTrigger?: number;
   isReadOnly?: boolean;
   canUpload?: boolean;
+  deleteEndpointPrefix?: string;
 }
 
 export function formatFileSize(bytes: number): string {
@@ -150,6 +152,7 @@ export function DocumentList({
   refreshTrigger,
   isReadOnly = false,
   canUpload = false,
+  deleteEndpointPrefix,
 }: DocumentListProps) {
   const [documents, setDocuments] = useState<IDocument[]>([]);
   const [total, setTotal] = useState(0);
@@ -261,7 +264,8 @@ export function DocumentList({
     if (!deletingDoc) return;
     setIsDeleting(true);
     try {
-      await ApiClient.delete(`/api/v1/documents/${deletingDoc.id}`);
+      const endpoint = deleteEndpointPrefix ? `${deleteEndpointPrefix}/${deletingDoc.id}` : `/api/v1/documents/${deletingDoc.id}`;
+      await ApiClient.delete(endpoint);
       success(`"${deletingDoc.title}" deleted from vector repository`, 'Deleted');
       setDeletingDoc(null);
       fetchDocuments(false);
@@ -563,9 +567,12 @@ export function DocumentList({
                           <div className="flex items-center gap-2.5">
                             {renderFileTypeBadge(doc.originalFilename, doc.mimeType)}
                             <div className="min-w-0 max-w-[260px]">
-                              <p className="font-semibold text-primary truncate leading-tight">
+                              <Link
+                                href={`/documents/${doc.id}`}
+                                className="font-semibold text-primary truncate leading-tight hover:text-brand-primary hover:underline block"
+                              >
                                 {doc.title}
-                              </p>
+                              </Link>
                               <p className="text-[11px] text-muted truncate mt-0.5 font-mono">
                                 {doc.originalFilename}
                               </p>
@@ -661,9 +668,12 @@ export function DocumentList({
                       <div className="flex items-start gap-2.5 min-w-0">
                         {renderFileTypeBadge(doc.originalFilename, doc.mimeType)}
                         <div className="min-w-0">
-                          <p className="font-semibold text-sm text-primary break-words leading-tight">
+                          <Link
+                            href={`/documents/${doc.id}`}
+                            className="font-semibold text-sm text-primary break-words leading-tight hover:text-brand-primary hover:underline block"
+                          >
                             {doc.title}
-                          </p>
+                          </Link>
                           <p className="text-[11px] text-muted truncate mt-0.5 font-mono">
                             {doc.originalFilename}
                           </p>

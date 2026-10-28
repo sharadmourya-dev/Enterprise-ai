@@ -9,6 +9,10 @@ import {
   AlertTriangle,
   FolderOpen,
   Calendar,
+  Pencil,
+  Check,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { IConversation } from '@enterprise-ai/shared-types';
 import { Button, Modal, ModalFooter, Skeleton } from '@/components/ui';
@@ -20,6 +24,7 @@ export interface ConversationSidebarProps {
   onSelectConversation: (conversationId: string) => void;
   onCreateConversation: () => void;
   onDeleteConversation: (conversationId: string) => Promise<void>;
+  onRenameConversation?: (conversationId: string, newTitle: string) => Promise<void>;
   isLoading?: boolean;
   isCreating?: boolean;
   className?: string;
@@ -38,6 +43,7 @@ export function ConversationSidebar({
   onSelectConversation,
   onCreateConversation,
   onDeleteConversation,
+  onRenameConversation,
   isLoading = false,
   isCreating = false,
   className,
@@ -45,6 +51,57 @@ export function ConversationSidebar({
   const [searchQuery, setSearchQuery] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [isSavingRename, setIsSavingRename] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+
+  const handleStartRename = (c: IConversation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(c.id);
+    setEditTitle(c.title || '');
+    setRenameError(null);
+  };
+
+  const handleCancelRename = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (isSavingRename) return;
+    setEditingId(null);
+    setEditTitle('');
+    setRenameError(null);
+  };
+
+  const handleSaveRename = async (conversationId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (isSavingRename) return;
+    const trimmed = editTitle.trim();
+    if (!trimmed) {
+      setRenameError('Title cannot be empty');
+      return;
+    }
+    if (trimmed.length > 150) {
+      setRenameError('Title cannot exceed 150 characters');
+      return;
+    }
+
+    if (!onRenameConversation) {
+      setEditingId(null);
+      return;
+    }
+
+    setIsSavingRename(true);
+    setRenameError(null);
+    try {
+      await onRenameConversation(conversationId, trimmed);
+      setEditingId(null);
+      setEditTitle('');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to rename conversation';
+      setRenameError(msg);
+    } finally {
+      setIsSavingRename(false);
+    }
+  };
 
   const filteredConversations = useMemo(() => {
     return conversations.filter((c) =>
@@ -97,6 +154,84 @@ export function ConversationSidebar({
 
   const renderConversationItem = (c: IConversation) => {
     const isActive = c.id === activeConversationId;
+    const isEditing = c.id === editingId;
+
+    if (isEditing) {
+      return (
+        <div
+          key={c.id}
+          data-conversation-id={c.id}
+          className={cn(
+            'px-2 py-1.5 rounded-lg border text-xs min-h-[38px] transition-all my-0.5',
+            isActive
+              ? 'border-brand-primary/60 bg-surface-elevated text-primary shadow-xs'
+              : 'border-brand-primary/40 bg-surface-elevated text-primary'
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={editTitle}
+              onChange={(e) => {
+                setEditTitle(e.target.value);
+                if (renameError) setRenameError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSaveRename(c.id);
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  handleCancelRename();
+                }
+              }}
+              disabled={isSavingRename}
+              maxLength={150}
+              autoFocus
+              aria-label={`Rename conversation: ${c.title}`}
+              placeholder="Title (1-150 chars)"
+              className={cn(
+                'flex-1 px-2 py-1 text-xs rounded border outline-none min-w-0 transition-colors bg-surface text-primary placeholder:text-muted',
+                renameError
+                  ? 'border-status-error ring-1 ring-status-error'
+                  : 'border-subtle focus:border-brand-primary focus:ring-1 focus:ring-brand-primary'
+              )}
+            />
+            <button
+              type="button"
+              onClick={(e) => handleSaveRename(c.id, e)}
+              disabled={isSavingRename}
+              aria-label="Save conversation title"
+              title="Save title"
+              className="p-1 rounded shrink-0 min-h-[26px] min-w-[26px] flex items-center justify-center transition-colors text-brand-primary hover:text-brand-primary-hover hover:bg-brand-primary/10 disabled:opacity-50"
+            >
+              {isSavingRename ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Check className="w-3.5 h-3.5" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => handleCancelRename(e)}
+              disabled={isSavingRename}
+              aria-label="Cancel renaming"
+              title="Cancel"
+              className="p-1 rounded shrink-0 min-h-[26px] min-w-[26px] flex items-center justify-center transition-colors text-muted hover:text-primary hover:bg-surface disabled:opacity-50"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          {renameError && (
+            <div className="text-[10px] text-status-error mt-1 px-1 font-medium leading-tight">
+              {renameError}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div
         key={c.id}
@@ -128,23 +263,39 @@ export function ConversationSidebar({
           <span className="truncate leading-tight">{c.title || 'Untitled Conversation'}</span>
         </div>
 
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setDeletingId(c.id);
-          }}
-          aria-label={`Delete conversation: ${c.title}`}
-          title="Delete conversation"
-          className={cn(
-            'opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded-md transition-all shrink-0 min-h-[28px] min-w-[28px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary',
-            isActive
-              ? 'hover:bg-white/20 text-white/80 hover:text-white'
-              : 'hover:bg-surface hover:text-status-error text-muted'
-          )}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={(e) => handleStartRename(c, e)}
+            aria-label={`Rename conversation: ${c.title}`}
+            title="Rename conversation"
+            className={cn(
+              'p-1 rounded-md transition-all shrink-0 min-h-[28px] min-w-[28px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary',
+              isActive
+                ? 'hover:bg-white/20 text-white/80 hover:text-white'
+                : 'hover:bg-surface hover:text-primary text-muted'
+            )}
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeletingId(c.id);
+            }}
+            aria-label={`Delete conversation: ${c.title}`}
+            title="Delete conversation"
+            className={cn(
+              'p-1 rounded-md transition-all shrink-0 min-h-[28px] min-w-[28px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary',
+              isActive
+                ? 'hover:bg-white/20 text-white/80 hover:text-white'
+                : 'hover:bg-surface hover:text-status-error text-muted'
+            )}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     );
   };

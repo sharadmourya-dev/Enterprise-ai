@@ -161,6 +161,16 @@ export default function LoginPage() {
                 disabled={isSubmitting}
                 className="dark:bg-[#0c1322] dark:border-[#1e2d47] dark:focus:border-brand-primary"
               />
+
+              <div className="flex justify-end pt-0.5">
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-brand-primary hover:underline font-medium"
+                  id="forgot-password-link"
+                >
+                  Forgot password?
+                </Link>
+              </div>
             </CardContent>
 
             <CardFooter className="flex-col gap-3.5 pt-0 px-6 sm:px-8 pb-6">

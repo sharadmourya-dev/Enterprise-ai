@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { X, ShieldCheck, LogOut, User } from 'lucide-react';
 import { SidebarNav } from './SidebarNav';
@@ -112,7 +113,12 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
         {/* Drawer Footer - User identity & logout */}
         {user && (
           <div className="p-4 border-t border-subtle bg-surface-elevated space-y-3">
-            <div className="flex items-center gap-2.5">
+            <Link
+              href="/profile"
+              onClick={onClose}
+              className="flex items-center gap-2.5 p-1.5 -m-1.5 rounded-lg hover:bg-surface transition-colors"
+              title="View User Profile & Security Clearance"
+            >
               <div className="w-8 h-8 rounded-full bg-surface border border-subtle flex items-center justify-center text-secondary shrink-0">
                 <User className="w-4 h-4" />
               </div>
@@ -120,7 +126,7 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
                 <p className="text-xs font-semibold text-primary truncate">{user.name}</p>
                 <p className="text-[11px] text-muted truncate">{user.email}</p>
               </div>
-            </div>
+            </Link>
 
             <div className="flex items-center gap-2 flex-wrap">
               {role && (

@@ -1,6 +1,6 @@
 import React from 'react';
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { CitationDrawer, CitationItem } from './CitationDrawer';
 import { FeedbackButtons } from './FeedbackButtons';
@@ -392,6 +392,196 @@ describe('Chat UI Components & Interactions', () => {
       await waitFor(() => {
         expect(onDelete).toHaveBeenCalledWith('c-1');
       });
+    });
+
+    it('opens the rename editor with current title prepopulated', () => {
+      render(
+        <ConversationSidebar
+          conversations={mockConversations}
+          onSelectConversation={jest.fn()}
+          onCreateConversation={jest.fn()}
+          onDeleteConversation={jest.fn()}
+          onRenameConversation={jest.fn()}
+        />
+      );
+
+      const renameBtn = screen.getByRole('button', {
+        name: /rename conversation: security guidelines query/i,
+      });
+      fireEvent.click(renameBtn);
+
+      const input = screen.getByRole('textbox', {
+        name: /rename conversation: security guidelines query/i,
+      }) as HTMLInputElement;
+
+      expect(input).toBeInTheDocument();
+      expect(input.value).toBe('Security Guidelines Query');
+      expect(screen.getByRole('button', { name: /save conversation title/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /cancel renaming/i })).toBeInTheDocument();
+    });
+
+    it('submits valid rename and calls onRenameConversation', async () => {
+      const onRename = jest.fn().mockResolvedValue(undefined);
+      render(
+        <ConversationSidebar
+          conversations={mockConversations}
+          onSelectConversation={jest.fn()}
+          onCreateConversation={jest.fn()}
+          onDeleteConversation={jest.fn()}
+          onRenameConversation={onRename}
+        />
+      );
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /rename conversation: security guidelines query/i })
+      );
+
+      const input = screen.getByRole('textbox', {
+        name: /rename conversation: security guidelines query/i,
+      });
+      fireEvent.change(input, { target: { value: 'Updated Security Architecture' } });
+
+      const saveBtn = screen.getByRole('button', { name: /save conversation title/i });
+      fireEvent.click(saveBtn);
+
+      await waitFor(() => {
+        expect(onRename).toHaveBeenCalledWith('c-1', 'Updated Security Architecture');
+      });
+
+      // Editor should close after successful save
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /save conversation title/i })).not.toBeInTheDocument();
+      });
+    });
+
+    it('cancels rename without calling onRenameConversation and restores item view', () => {
+      const onRename = jest.fn();
+      render(
+        <ConversationSidebar
+          conversations={mockConversations}
+          onSelectConversation={jest.fn()}
+          onCreateConversation={jest.fn()}
+          onDeleteConversation={jest.fn()}
+          onRenameConversation={onRename}
+        />
+      );
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /rename conversation: security guidelines query/i })
+      );
+
+      const input = screen.getByRole('textbox', {
+        name: /rename conversation: security guidelines query/i,
+      });
+      fireEvent.change(input, { target: { value: 'Aborted Title Change' } });
+
+      const cancelBtn = screen.getByRole('button', { name: /cancel renaming/i });
+      fireEvent.click(cancelBtn);
+
+      expect(onRename).not.toHaveBeenCalled();
+      expect(screen.queryByRole('textbox', { name: /rename conversation/i })).not.toBeInTheDocument();
+      expect(screen.getByText('Security Guidelines Query')).toBeInTheDocument();
+    });
+
+    it('rejects empty and whitespace-only titles with inline client validation error', () => {
+      const onRename = jest.fn();
+      render(
+        <ConversationSidebar
+          conversations={mockConversations}
+          onSelectConversation={jest.fn()}
+          onCreateConversation={jest.fn()}
+          onDeleteConversation={jest.fn()}
+          onRenameConversation={onRename}
+        />
+      );
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /rename conversation: security guidelines query/i })
+      );
+
+      const input = screen.getByRole('textbox', {
+        name: /rename conversation: security guidelines query/i,
+      });
+      fireEvent.change(input, { target: { value: '    ' } });
+
+      const saveBtn = screen.getByRole('button', { name: /save conversation title/i });
+      fireEvent.click(saveBtn);
+
+      expect(onRename).not.toHaveBeenCalled();
+      expect(screen.getByText(/title cannot be empty/i)).toBeInTheDocument();
+    });
+
+    it('displays API failure message inline without corrupting input state', async () => {
+      const onRename = jest.fn().mockRejectedValue(new Error('Network error during rename'));
+      render(
+        <ConversationSidebar
+          conversations={mockConversations}
+          onSelectConversation={jest.fn()}
+          onCreateConversation={jest.fn()}
+          onDeleteConversation={jest.fn()}
+          onRenameConversation={onRename}
+        />
+      );
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /rename conversation: security guidelines query/i })
+      );
+
+      const input = screen.getByRole('textbox', {
+        name: /rename conversation: security guidelines query/i,
+      }) as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'Attempted Title' } });
+
+      const saveBtn = screen.getByRole('button', { name: /save conversation title/i });
+      fireEvent.click(saveBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText('Network error during rename')).toBeInTheDocument();
+      });
+
+      // Input remains open with the entered value
+      expect(input).toBeInTheDocument();
+      expect(input.value).toBe('Attempted Title');
+    });
+
+    it('prevents duplicate submissions while save is in flight', async () => {
+      let resolvePromise: () => void;
+      const pendingPromise = new Promise<void>((resolve) => {
+        resolvePromise = resolve;
+      });
+      const onRename = jest.fn().mockReturnValue(pendingPromise);
+
+      render(
+        <ConversationSidebar
+          conversations={mockConversations}
+          onSelectConversation={jest.fn()}
+          onCreateConversation={jest.fn()}
+          onDeleteConversation={jest.fn()}
+          onRenameConversation={onRename}
+        />
+      );
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /rename conversation: security guidelines query/i })
+      );
+
+      const saveBtn = screen.getByRole('button', { name: /save conversation title/i });
+      fireEvent.click(saveBtn);
+
+      expect(onRename).toHaveBeenCalledTimes(1);
+
+      // Attempt second click while first is in flight
+      fireEvent.click(saveBtn);
+      expect(onRename).toHaveBeenCalledTimes(1);
+      expect(saveBtn).toBeDisabled();
+
+      // Resolve the pending promise
+      await act(async () => {
+        resolvePromise!();
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /save conversation title/i })).not.toBeInTheDocument();
+      }, { timeout: 3000 });
     });
   });
 

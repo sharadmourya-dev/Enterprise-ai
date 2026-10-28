@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useParams, useRouter } from 'next/navigation';
 import {
   MessageSquare,
   Sparkles,
@@ -44,13 +44,20 @@ const SUGGESTED_PROMPTS = [
   'Explain the clearance requirements for viewing restricted documents.',
 ];
 
-function ChatContent() {
+function ChatContent({ initialConversationId }: { initialConversationId?: string }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const params = useParams();
+  const routeConvId =
+    initialConversationId ||
+    (typeof params?.conversationId === 'string' ? params.conversationId : undefined);
   const { user, isAdmin, clearance } = useAuth();
   const { error: showErrorToast, info: showInfoToast, success: showSuccessToast } = useToast();
 
   const [conversations, setConversations] = useState<IConversation[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+    routeConvId || null
+  );
   const [messages, setMessages] = useState<IMessage[]>([]);
   const [composerText, setComposerText] = useState('');
 
@@ -92,7 +99,7 @@ function ChatContent() {
 
   // Scroll smoothly to bottom when messages or streaming content changes
   const scrollToBottom = useCallback((smooth = true) => {
-    messagesEndRef.current?.scrollIntoView({
+    messagesEndRef.current?.scrollIntoView?.({
       behavior: smooth ? 'smooth' : 'auto',
       block: 'end',
     });
@@ -102,6 +109,13 @@ function ChatContent() {
     scrollToBottom(true);
   }, [messages, streamingContent, streamingStage, scrollToBottom]);
 
+  // Synchronize route conversation ID if changed
+  useEffect(() => {
+    if (routeConvId) {
+      setActiveConversationId(routeConvId);
+    }
+  }, [routeConvId]);
+
   // Load user conversations when user is authenticated
   const loadConversations = useCallback(async () => {
     setIsLoadingConversations(true);
@@ -110,8 +124,10 @@ function ChatContent() {
       const list = Array.isArray(data) ? data : [];
       setConversations(list);
 
-      // Select first conversation if none selected
-      if (list.length > 0) {
+      // Select route conversation if specified, or first conversation if none selected
+      if (routeConvId) {
+        setActiveConversationId(routeConvId);
+      } else if (list.length > 0) {
         setActiveConversationId((prev) => prev || list[0].id);
       }
     } catch (err: unknown) {
@@ -120,7 +136,7 @@ function ChatContent() {
     } finally {
       setIsLoadingConversations(false);
     }
-  }, [showErrorToast]);
+  }, [routeConvId, showErrorToast]);
 
   useEffect(() => {
     if (user) {
@@ -151,6 +167,8 @@ function ChatContent() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load message history';
       showErrorToast(msg, 'History Error');
+      setMessages([]);
+      setStreamingError('This conversation could not be found or you do not have permission to view it.');
     } finally {
       setIsLoadingMessages(false);
     }
@@ -177,6 +195,7 @@ function ChatContent() {
       setComposerText('');
       setStreamingError(null);
       showSuccessToast('Started new conversation', 'New Chat');
+      router.push(`/chat/${newConv.id}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to create conversation';
       showErrorToast(msg, 'Creation Error');
@@ -193,12 +212,38 @@ function ChatContent() {
 
       if (activeConversationId === conversationId) {
         const remaining = conversations.filter((c) => c.id !== conversationId);
-        setActiveConversationId(remaining.length > 0 ? remaining[0].id : null);
+        if (remaining.length > 0) {
+          setActiveConversationId(remaining[0].id);
+          router.push(`/chat/${remaining[0].id}`);
+        } else {
+          setActiveConversationId(null);
+          router.push('/chat');
+        }
       }
       showInfoToast('Conversation removed', 'Deleted');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to delete conversation';
       showErrorToast(msg, 'Delete Error');
+    }
+  };
+
+  // Rename a conversation
+  const handleRenameConversation = async (conversationId: string, newTitle: string) => {
+    try {
+      const updated = await ApiClient.patch<IConversation>(
+        `/api/v1/conversations/${conversationId}`,
+        { title: newTitle }
+      );
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === conversationId ? { ...c, title: updated.title, updatedAt: updated.updatedAt } : c
+        )
+      );
+      showInfoToast('Conversation renamed', 'Renamed');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to rename conversation';
+      showErrorToast(msg, 'Rename Error');
+      throw err;
     }
   };
 
@@ -380,9 +425,13 @@ function ChatContent() {
           <ConversationSidebar
             conversations={conversations}
             activeConversationId={activeConversationId}
-            onSelectConversation={(id) => setActiveConversationId(id)}
+            onSelectConversation={(id) => {
+              setActiveConversationId(id);
+              router.push(`/chat/${id}`);
+            }}
             onCreateConversation={handleCreateConversation}
             onDeleteConversation={handleDeleteConversation}
+            onRenameConversation={handleRenameConversation}
             isLoading={isLoadingConversations}
             isCreating={isCreatingConversation}
           />
@@ -421,9 +470,11 @@ function ChatContent() {
                   onSelectConversation={(id) => {
                     setActiveConversationId(id);
                     setMobileSidebarOpen(false);
+                    router.push(`/chat/${id}`);
                   }}
                   onCreateConversation={handleCreateConversation}
                   onDeleteConversation={handleDeleteConversation}
+                  onRenameConversation={handleRenameConversation}
                   isLoading={isLoadingConversations}
                   isCreating={isCreatingConversation}
                 />
@@ -499,6 +550,19 @@ function ChatContent() {
                 <div className="h-16 w-3/4 rounded-2xl bg-surface-elevated animate-pulse ml-auto" />
                 <div className="h-32 w-5/6 rounded-2xl bg-surface-elevated animate-pulse" />
                 <div className="h-16 w-2/3 rounded-2xl bg-surface-elevated animate-pulse ml-auto" />
+              </div>
+            ) : streamingError && messages.length === 0 ? (
+              <div className="text-center py-12 sm:py-16 space-y-4 max-w-md mx-auto">
+                <div className="w-12 h-12 rounded-2xl bg-status-error/10 text-status-error flex items-center justify-center mx-auto border border-status-error/20">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-primary">Conversation Unavailable</h3>
+                  <p className="text-xs text-secondary leading-relaxed">{streamingError}</p>
+                </div>
+                <Button variant="primary" size="sm" onClick={handleCreateConversation} leftIcon={<Plus className="w-4 h-4" />}>
+                  Start New Chat
+                </Button>
               </div>
             ) : messages.length === 0 && !isStreaming ? (
               /* Empty Conversation Welcome State */

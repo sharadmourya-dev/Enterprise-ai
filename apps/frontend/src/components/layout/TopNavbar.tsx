@@ -72,7 +72,11 @@ export function TopNavbar({ onOpenMobileMenu, className }: TopNavbarProps) {
       {/* Right section: User claims, Clearance badge, Theme toggle, and Logout */}
       <div className="flex items-center gap-2 sm:gap-3">
         {user && (
-          <div className="hidden sm:flex items-center gap-2.5 px-3 py-1 rounded-lg border border-subtle bg-surface-elevated">
+          <Link
+            href="/profile"
+            className="hidden sm:flex items-center gap-2.5 px-3 py-1 rounded-lg border border-subtle bg-surface-elevated hover:border-brand-primary/40 hover:bg-surface-elevated/80 transition-colors"
+            title="View User Profile & Security Clearance"
+          >
             <User className="w-4 h-4 text-muted shrink-0" />
             <div className="text-xs">
               <span className="font-semibold text-primary block leading-tight truncate max-w-[140px]">
@@ -96,7 +100,7 @@ export function TopNavbar({ onOpenMobileMenu, className }: TopNavbarProps) {
                 {role}
               </Badge>
             )}
-          </div>
+          </Link>
         )}
 
         {/* Theme toggle */}

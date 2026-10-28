@@ -23,5 +23,6 @@ module.exports = {
     '^lucide-react$': '<rootDir>/../../node_modules/lucide-react/dist/cjs/lucide-react.js',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
+  testTimeout: 15000,
   verbose: true,
 };

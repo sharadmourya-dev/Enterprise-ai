@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import Link from 'next/link';
 import { X, FileText, Bookmark, Hash, Layers, ExternalLink } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -202,9 +203,14 @@ export function CitationDrawer({
                     <Hash className="w-3.5 h-3.5" />
                     Document ID
                   </span>
-                  <span className="font-mono text-[11px] text-secondary truncate max-w-[180px]">
-                    {String(activeCitation.documentId)}
-                  </span>
+                  <Link
+                    href={`/documents/${activeCitation.documentId}`}
+                    className="font-mono text-[11px] text-brand-primary hover:underline inline-flex items-center gap-1 truncate max-w-[180px]"
+                    title="Open document details"
+                  >
+                    <span>{String(activeCitation.documentId)}</span>
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </Link>
                 </div>
 
                 <div className="flex items-center justify-between text-secondary">
@@ -242,8 +248,23 @@ export function CitationDrawer({
         </div>
 
         {/* Drawer Footer */}
-        <div className="p-4 border-t border-subtle bg-surface flex justify-end">
-          <Button variant="secondary" size="sm" onClick={onClose} className="min-h-[44px]">
+        <div className="p-4 border-t border-subtle bg-surface flex items-center justify-between gap-3">
+          {activeCitation?.documentId ? (
+            <Link href={`/documents/${activeCitation.documentId}`}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs font-semibold"
+                leftIcon={<ExternalLink className="w-3.5 h-3.5 text-brand-primary" />}
+                id="drawer-view-document-btn"
+              >
+                View Document
+              </Button>
+            </Link>
+          ) : (
+            <div />
+          )}
+          <Button variant="secondary" size="sm" onClick={onClose} className="min-h-[38px]">
             Close
           </Button>
         </div>

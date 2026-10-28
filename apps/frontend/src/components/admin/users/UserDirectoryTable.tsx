@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import {
   Role,
   IAdminUserListItem,
@@ -19,6 +20,7 @@ import {
 } from '@/components/ui';
 import {
   Users,
+  User,
   Shield,
   Key,
   ChevronLeft,
@@ -186,9 +188,12 @@ export function UserDirectoryTable({
                             {initials}
                           </div>
                           <div className="min-w-0">
-                            <div className="font-semibold text-text-primary truncate">
+                            <Link
+                              href={`/admin/users/${u.id}`}
+                              className="font-semibold text-text-primary hover:text-brand-primary hover:underline block truncate"
+                            >
                               {u.name}
-                            </div>
+                            </Link>
                             <div className="text-[11px] text-text-secondary truncate font-mono">
                               {u.email}
                             </div>
@@ -260,16 +265,29 @@ export function UserDirectoryTable({
 
                       {/* Actions */}
                       <td className="py-3.5 px-6 text-right whitespace-nowrap">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onSelectUser(u)}
-                          leftIcon={<Key className="w-3.5 h-3.5 text-brand-primary" />}
-                          className="text-xs font-medium"
-                          id={`manage-perm-btn-${u.id}`}
-                        >
-                          Manage Permissions
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Link href={`/admin/users/${u.id}`}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              leftIcon={<User className="w-3.5 h-3.5 text-text-secondary" />}
+                              className="text-xs font-medium"
+                              id={`view-user-btn-${u.id}`}
+                            >
+                              Details
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onSelectUser(u)}
+                            leftIcon={<Key className="w-3.5 h-3.5 text-brand-primary" />}
+                            className="text-xs font-medium"
+                            id={`manage-perm-btn-${u.id}`}
+                          >
+                            Manage Permissions
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );

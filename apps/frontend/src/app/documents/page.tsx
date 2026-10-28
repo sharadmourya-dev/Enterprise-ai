@@ -65,6 +65,7 @@ export default function DocumentsPage() {
           refreshTrigger={refreshTrigger}
           isReadOnly={!isAdmin}
           canUpload={canUpload}
+          deleteEndpointPrefix={isAdmin ? '/api/v1/admin/documents' : undefined}
         />
 
         {/* Document Upload Modal (Available to users possessing upload permission) */}
