@@ -18,6 +18,10 @@
     "infra:down": "docker compose -f infrastructure/docker-compose.infra.yml down",
     "infra:logs": "docker compose -f infrastructure/docker-compose.infra.yml logs -f",
     "infra:status": "docker compose -f infrastructure/docker-compose.infra.yml ps",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:status": "docker compose ps",
     "admin:promote": "npm run admin:promote --workspace=@enterprise-ai/backend --"
   },
   "devDependencies": {

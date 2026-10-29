@@ -13,5 +13,6 @@ router.use(requireRole(Role.ADMIN, Role.SUPER_ADMIN));
 router.get('/', AdminUserController.listUsers);
 router.get('/:id', AdminUserController.getUser);
 router.patch('/:id/permissions', AdminUserController.updatePermissions);
+router.patch('/:id/status', AdminUserController.updateStatus);
 
 export default router;

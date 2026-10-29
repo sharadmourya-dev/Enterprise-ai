@@ -11,6 +11,8 @@ export interface IUserDocument extends Document {
   permissions: string[];
   isActive: boolean;
   refreshTokenHash?: string | null;
+  passwordResetTokenHash?: string | null;
+  passwordResetExpiresAt?: Date | null;
   tokenVersion: number;
   failedLoginAttempts: number;
   lockoutUntil?: Date | null;
@@ -65,6 +67,15 @@ const UserSchema = new Schema<IUserDocument>(
     },
     refreshTokenHash: {
       type: String,
+      default: null,
+    },
+    passwordResetTokenHash: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    passwordResetExpiresAt: {
+      type: Date,
       default: null,
     },
     tokenVersion: {

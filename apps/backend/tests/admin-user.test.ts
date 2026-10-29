@@ -10,6 +10,7 @@ import {
 } from '@enterprise-ai/shared-types';
 import { AdminUserService } from '../src/services/admin-user.service.js';
 import { UserModel } from '../src/models/User.model.js';
+import { SessionModel } from '../src/models/Session.model.js';
 import { AuditService } from '../src/services/audit.service.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../src/utils/errors.js';
 
@@ -309,6 +310,97 @@ describe('Admin User Management & Permission Administration', () => {
           details: expect.objectContaining({
             granted: [],
             revoked: [Permission.DOCUMENTS_UPLOAD],
+          }),
+        })
+      );
+    });
+  });
+
+  describe('updateStatus (Activate / Deactivate Lifecycle)', () => {
+    it('rejects self-deactivation attempt with ForbiddenError', async () => {
+      await expect(
+        AdminUserService.updateStatus(adminCaller.sub, false, adminCaller)
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it('rejects deactivating the last active administrator with ForbiddenError', async () => {
+      const adminDoc = {
+        _id: new mongoose.Types.ObjectId(adminCaller.sub),
+        role: Role.ADMIN,
+        isActive: true,
+        save: jest.fn().mockResolvedValue(true),
+      };
+      jest.spyOn(UserModel, 'findById').mockResolvedValue(adminDoc as any);
+      jest.spyOn(UserModel, 'countDocuments').mockResolvedValue(1);
+
+      await expect(
+        AdminUserService.updateStatus(adminDoc._id.toString(), false, superAdminCaller)
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it('successfully deactivates regular user, increments tokenVersion, revokes sessions, and logs audit', async () => {
+      const employeeDoc = {
+        ...mockEmployeeUser,
+        tokenVersion: 1,
+        save: jest.fn().mockResolvedValue(true),
+      };
+      jest.spyOn(UserModel, 'findById').mockResolvedValue(employeeDoc as any);
+      const sessionSpy = jest.spyOn(SessionModel, 'updateMany').mockResolvedValue({} as any);
+      const auditSpy = jest.spyOn(AuditService, 'log').mockResolvedValue(null as any);
+
+      const result = await AdminUserService.updateStatus(
+        employeeTargetId,
+        false,
+        adminCaller,
+        { ip: '127.0.0.1' }
+      );
+
+      expect(employeeDoc.isActive).toBe(false);
+      expect(employeeDoc.tokenVersion).toBe(2);
+      expect(employeeDoc.save).toHaveBeenCalled();
+      expect(sessionSpy).toHaveBeenCalledWith(
+        { userId: employeeDoc._id, isRevoked: false },
+        { isRevoked: true, revokedReason: 'ACCOUNT_DEACTIVATED' }
+      );
+      expect(result.isActive).toBe(false);
+      expect(auditSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.ADMIN_STATUS_CHANGE,
+          resourceId: employeeTargetId,
+          status: 'success',
+          details: expect.objectContaining({
+            newStatus: false,
+          }),
+        })
+      );
+    });
+
+    it('successfully reactivates deactivated user and logs audit', async () => {
+      const deactivatedUser = {
+        ...mockEmployeeUser,
+        isActive: false,
+        tokenVersion: 2,
+        save: jest.fn().mockResolvedValue(true),
+      };
+      jest.spyOn(UserModel, 'findById').mockResolvedValue(deactivatedUser as any);
+      const auditSpy = jest.spyOn(AuditService, 'log').mockResolvedValue(null as any);
+
+      const result = await AdminUserService.updateStatus(
+        employeeTargetId,
+        true,
+        adminCaller
+      );
+
+      expect(deactivatedUser.isActive).toBe(true);
+      expect(deactivatedUser.save).toHaveBeenCalled();
+      expect(result.isActive).toBe(true);
+      expect(auditSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.ADMIN_STATUS_CHANGE,
+          resourceId: employeeTargetId,
+          status: 'success',
+          details: expect.objectContaining({
+            newStatus: true,
           }),
         })
       );

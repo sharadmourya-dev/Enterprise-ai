@@ -12,6 +12,7 @@ import {
   AuditResourceType,
 } from '@enterprise-ai/shared-types';
 import { UserModel, IUserDocument } from '../models/User.model.js';
+import { SessionModel } from '../models/Session.model.js';
 import { AuditService } from './audit.service.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 
@@ -196,6 +197,84 @@ export class AdminUserService {
         newPermissions: sanitizedPermissions,
         granted,
         revoked,
+      },
+    });
+
+    return this.formatUserListItem(targetUser);
+  }
+
+  /**
+   * Activates or deactivates a target user account with strict RBAC guards and session invalidation
+   */
+  public static async updateStatus(
+    targetUserId: string,
+    isActive: boolean,
+    caller: IJwtPayload,
+    clientMeta?: { ip?: string; userAgent?: string }
+  ): Promise<IAdminUserListItem> {
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      throw new BadRequestError('Invalid user ID format');
+    }
+
+    // 1. Guard against self-deactivation
+    if (caller.sub === targetUserId && !isActive) {
+      throw new ForbiddenError('Administrators cannot deactivate their own accounts');
+    }
+
+    // 2. Fetch target user
+    const targetUser = await UserModel.findById(targetUserId);
+    if (!targetUser) {
+      throw new NotFoundError('Target user not found');
+    }
+
+    // 3. Super Admin & Admin hierarchy protection
+    if (targetUser.role === Role.SUPER_ADMIN && caller.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenError('Only Super Administrators can modify Super Administrator accounts');
+    }
+
+    if (targetUser.role === Role.ADMIN && caller.role !== Role.SUPER_ADMIN && caller.sub !== targetUserId) {
+      throw new ForbiddenError('Only Super Administrators can modify Administrator accounts');
+    }
+
+    // 4. Guard against deactivating the last active administrator
+    if (!isActive && (targetUser.role === Role.ADMIN || targetUser.role === Role.SUPER_ADMIN)) {
+      const activeAdminCount = await UserModel.countDocuments({
+        role: { $in: [Role.ADMIN, Role.SUPER_ADMIN] },
+        isActive: true,
+      });
+      if (activeAdminCount <= 1) {
+        throw new ForbiddenError('Cannot deactivate the last active administrator');
+      }
+    }
+
+    // 5. Update status & increment tokenVersion to invalidate existing tokens
+    const previousStatus = targetUser.isActive;
+    targetUser.isActive = isActive;
+    targetUser.tokenVersion = (targetUser.tokenVersion || 0) + 1;
+    await targetUser.save();
+
+    // 6. If deactivating, revoke all active sessions in SessionModel
+    if (!isActive) {
+      await SessionModel.updateMany(
+        { userId: targetUser._id, isRevoked: false },
+        { isRevoked: true, revokedReason: 'ACCOUNT_DEACTIVATED' }
+      );
+    }
+
+    // 7. Audit log
+    await AuditService.log({
+      userId: caller.sub,
+      action: AuditAction.ADMIN_STATUS_CHANGE,
+      resourceType: AuditResourceType.USER,
+      resourceId: targetUser._id.toString(),
+      ipAddress: clientMeta?.ip,
+      userAgent: clientMeta?.userAgent,
+      status: 'success',
+      details: {
+        targetUserEmail: targetUser.email,
+        targetUserRole: targetUser.role,
+        previousStatus,
+        newStatus: isActive,
       },
     });
 

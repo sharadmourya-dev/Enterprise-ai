@@ -18,4 +18,16 @@ router.post(
   RagController.query
 );
 
+// POST /api/v1/rag/search - Authenticated retrieval-only search without LLM synthesis
+router.post(
+  '/search',
+  authenticate,
+  createRateLimiter({
+    category: 'search',
+    windowMs: env.RATE_LIMIT_CHAT_WINDOW_MS,
+    maxRequests: env.RATE_LIMIT_CHAT_MAX_REQUESTS,
+  }),
+  RagController.search
+);
+
 export default router;

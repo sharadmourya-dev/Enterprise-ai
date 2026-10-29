@@ -143,6 +143,41 @@ export const openapiSpecification: Record<string, unknown> = {
           contentSnippet: { type: 'string', example: 'Standard engineering deployment freeze occurs on Fridays after 2 PM...' },
         },
       },
+      SearchResultItem: {
+        type: 'object',
+        required: ['chunkId', 'documentId', 'revision', 'title', 'content', 'score', 'rank'],
+        properties: {
+          chunkId: { type: 'string', example: 'chunk_001_deploy' },
+          documentId: { type: 'string', example: 'doc_671350a12f3e8b0012345699' },
+          revision: { type: 'integer', example: 1 },
+          title: { type: 'string', example: 'Engineering Deployment Guide' },
+          content: { type: 'string', example: 'Standard engineering deployment freeze occurs on Fridays after 2 PM...' },
+          pageNumber: { type: 'integer', nullable: true, example: 4 },
+          sectionHeader: { type: 'string', nullable: true, example: 'Deployment Freeze Windows' },
+          score: { type: 'number', example: 0.88 },
+          rank: { type: 'integer', example: 1 },
+        },
+      },
+      SearchResponseData: {
+        type: 'object',
+        required: ['query', 'results', 'total', 'timings'],
+        properties: {
+          query: { type: 'string', example: 'deployment freeze windows' },
+          results: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/SearchResultItem' },
+          },
+          total: { type: 'integer', example: 1 },
+          timings: {
+            type: 'object',
+            properties: {
+              embeddingMs: { type: 'number', example: 45 },
+              searchMs: { type: 'number', example: 22 },
+            },
+            required: ['embeddingMs', 'searchMs'],
+          },
+        },
+      },
     },
   },
   tags: [
@@ -153,6 +188,7 @@ export const openapiSpecification: Record<string, unknown> = {
     { name: 'Conversations & Chat', description: 'Multi-turn conversational threads, message persistence, and SSE streaming' },
     { name: 'Feedback', description: 'Answer quality feedback and telemetry ratings' },
     { name: 'Admin - Users', description: 'User management directory and granular permission assignment' },
+    { name: 'Admin - Documents', description: 'Administrative document management and deletion operations' },
     { name: 'Admin - Analytics', description: 'Organizational usage analytics, top queries, and cited sources' },
     { name: 'Admin - Audit', description: 'Cryptographic tamper-evident audit logs and HMAC verification' },
   ],
@@ -626,6 +662,129 @@ export const openapiSpecification: Record<string, unknown> = {
         },
       },
     },
+    '/api/v1/chat': {
+      post: {
+        tags: ['Conversations & Chat', 'RAG Retrieval'],
+        security: [{ bearerAuth: [] }],
+        summary: 'Single-turn chat compatibility alias (stateless RAG query)',
+        description: 'Backward-compatible single-turn chat alias for /api/v1/rag/query. Executes authenticated ACL vector retrieval, active revision validation, and grounded answer synthesis with source citations. Does NOT create persistent conversations or messages in MongoDB.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['query'],
+                properties: {
+                  query: { type: 'string', minLength: 1, maxLength: 1000, example: 'What is our corporate travel reimbursement policy?' },
+                  topK: { type: 'integer', minimum: 1, maximum: 20, default: 5 },
+                  similarityThreshold: { type: 'number', minimum: 0, maximum: 1, default: 0.65 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Grounded RAG answer and verified source citations',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        answer: { type: 'string', example: 'The daily cap for domestic corporate travel reimbursement is $150 per day [S1].' },
+                        citations: { type: 'array', items: { $ref: '#/components/schemas/Citation' } },
+                        insufficientEvidence: { type: 'boolean', example: false },
+                        retrievalMetadata: {
+                          type: 'object',
+                          properties: {
+                            totalCandidates: { type: 'integer', example: 4 },
+                            authorizedChunks: { type: 'integer', example: 4 },
+                            timingsMs: {
+                              type: 'object',
+                              properties: {
+                                embedding: { type: 'number', example: 120 },
+                                retrieval: { type: 'number', example: 35 },
+                                generation: { type: 'number', example: 850 },
+                                total: { type: 'number', example: 1005 },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    meta: {
+                      type: 'object',
+                      properties: {
+                        timestamp: { type: 'string', format: 'date-time' },
+                        requestId: { type: 'string', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Invalid query string or parameters' },
+          401: { description: 'Authentication required' },
+          429: { description: 'Rate limit exceeded' },
+        },
+      },
+    },
+    '/api/v1/search': {
+      post: {
+        tags: ['RAG Retrieval'],
+        security: [{ bearerAuth: [] }],
+        summary: 'Search-only retrieval alias returning ranked chunks without LLM synthesis',
+        description: 'Backward-compatible search-only alias. Generates query embeddings, executes pre-retrieval Qdrant ACL vector search, validates active revisions and document status against MongoDB, and returns authorized result snippets and ranking metadata directly. Does NOT invoke any LLM provider or answer generation.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['query'],
+                properties: {
+                  query: { type: 'string', minLength: 1, maxLength: 1000, example: 'deployment freeze windows' },
+                  topK: { type: 'integer', minimum: 1, maximum: 20, default: 5 },
+                  similarityThreshold: { type: 'number', minimum: 0, maximum: 1, default: 0.65 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Ranked authorized search snippets without LLM synthesis',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    data: { $ref: '#/components/schemas/SearchResponseData' },
+                    meta: {
+                      type: 'object',
+                      properties: {
+                        timestamp: { type: 'string', format: 'date-time' },
+                        requestId: { type: 'string', example: 'b2c3d4e5-f6a7-8901-bcde-f12345678901' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Invalid search parameters' },
+          401: { description: 'Authentication required' },
+          429: { description: 'Rate limit exceeded' },
+        },
+      },
+    },
     '/api/v1/conversations': {
       post: {
         tags: ['Conversations & Chat'],
@@ -949,6 +1108,35 @@ export const openapiSpecification: Record<string, unknown> = {
           200: { description: 'Permissions updated successfully' },
           400: { description: 'Invalid permission claim requested' },
           403: { description: 'Self-modification forbidden or privilege escalation blocked' },
+        },
+      },
+    },
+    '/api/v1/admin/documents/{id}': {
+      delete: {
+        tags: ['Admin - Documents'],
+        security: [{ bearerAuth: [] }],
+        summary: 'Admin delete document, chunks, storage file, and vector embeddings',
+        description: 'Requires ADMIN or SUPER_ADMIN role. Safely deletes MongoDB document, chunk records, storage files, and Qdrant vectors.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: {
+            description: 'Document and associated vectors deleted successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Document and associated vectors deleted successfully' },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Invalid document ID format' },
+          401: { description: 'Authentication token is required' },
+          403: { description: 'Insufficient permissions (requires Admin or Super Admin)' },
+          404: { description: 'Document not found' },
         },
       },
     },

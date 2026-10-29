@@ -62,6 +62,10 @@ export interface ICreateConversationRequest {
   systemPromptOverride?: string;
 }
 
+export interface IUpdateConversationRequest {
+  title: string;
+}
+
 export interface IConversationListQuery {
   page?: number;
   limit?: number;

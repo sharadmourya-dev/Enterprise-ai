@@ -39,8 +39,10 @@ describe('OpenAPI 3.0 Specification & Swagger Documentation Tests', () => {
     expect(documentedPaths).toContain('/api/v1/documents/{id}');
     expect(documentedPaths).toContain('/api/v1/documents/{id}/retry');
 
-    // RAG & Conversations
+    // RAG & Conversations & Compatibility Aliases
     expect(documentedPaths).toContain('/api/v1/rag/query');
+    expect(documentedPaths).toContain('/api/v1/chat');
+    expect(documentedPaths).toContain('/api/v1/search');
     expect(documentedPaths).toContain('/api/v1/conversations');
     expect(documentedPaths).toContain('/api/v1/conversations/{conversationId}');
     expect(documentedPaths).toContain('/api/v1/conversations/{conversationId}/messages');
@@ -51,6 +53,7 @@ describe('OpenAPI 3.0 Specification & Swagger Documentation Tests', () => {
     expect(documentedPaths).toContain('/api/v1/feedback/message/{messageId}');
 
     // Admin APIs
+    expect(documentedPaths).toContain('/api/v1/admin/documents/{id}');
     expect(documentedPaths).toContain('/api/v1/admin/users');
     expect(documentedPaths).toContain('/api/v1/admin/users/{id}');
     expect(documentedPaths).toContain('/api/v1/admin/users/{id}/permissions');

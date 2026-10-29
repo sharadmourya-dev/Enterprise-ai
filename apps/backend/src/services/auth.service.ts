@@ -441,6 +441,158 @@ export class AuthService {
     };
   }
 
+  /**
+   * Authenticated password change with current password verification, bcrypt hashing, and session revocation
+   */
+  public static async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    clientMeta?: { ip?: string; userAgent?: string }
+  ): Promise<{ message: string }> {
+    const user = await UserModel.findById(userId);
+    if (!user || !user.isActive) {
+      throw new UnauthorizedError('User account not found or deactivated');
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) {
+      throw new BadRequestError('Current password is incorrect');
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestError('New password must be at least 8 characters long');
+    }
+
+    // Hash new password using project standard bcrypt
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+    user.passwordHash = newPasswordHash;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    await user.save();
+
+    // Revoke all existing sessions for this user
+    await SessionModel.updateMany(
+      { userId: user._id, isRevoked: false },
+      { isRevoked: true, revokedReason: 'PASSWORD_CHANGED' }
+    );
+
+    await AuditService.log({
+      userId: user._id.toString(),
+      action: AuditAction.AUTH_PASSWORD_CHANGE,
+      resourceType: AuditResourceType.USER,
+      resourceId: user._id.toString(),
+      ipAddress: clientMeta?.ip,
+      userAgent: clientMeta?.userAgent,
+      status: 'success',
+      details: { reason: 'user_initiated_password_change' },
+    });
+
+    return { message: 'Password changed successfully' };
+  }
+
+  /**
+   * Public forgot-password request. Timing-equalized generic response prevents account enumeration.
+   * Single-use cryptographic reset token is hashed with SHA-256 and stored with 15-minute expiration.
+   */
+  public static async forgotPassword(
+    email: string,
+    clientMeta?: { ip?: string; userAgent?: string }
+  ): Promise<{ message: string }> {
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await UserModel.findOne({ email: normalizedEmail });
+
+    if (!user || !user.isActive) {
+      // Timing equalization against enumeration attacks
+      await bcrypt.compare('dummy_timing_probe', DUMMY_BCRYPT_HASH);
+      return {
+        message: 'If an account with that email address exists, password reset instructions have been sent.',
+      };
+    }
+
+    // Generate single-use cryptographically secure reset token
+    const rawResetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = crypto.createHash('sha256').update(rawResetToken).digest('hex');
+
+    user.passwordResetTokenHash = resetTokenHash;
+    user.passwordResetExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    await user.save();
+
+    await AuditService.log({
+      userId: user._id.toString(),
+      action: AuditAction.AUTH_PASSWORD_RESET_REQUEST,
+      resourceType: AuditResourceType.USER,
+      resourceId: user._id.toString(),
+      ipAddress: clientMeta?.ip,
+      userAgent: clientMeta?.userAgent,
+      status: 'success',
+      details: { email: user.email },
+    });
+
+    // Note: No outbound email provider is configured in this deployment environment.
+    // In accordance with security requirements, the token is not leaked to logs or API responses.
+    return {
+      message: 'If an account with that email address exists, password reset instructions have been sent.',
+    };
+  }
+
+  /**
+   * Public password reset verification and execution using single-use SHA-256 token
+   */
+  public static async resetPassword(
+    token: string,
+    newPassword: string,
+    clientMeta?: { ip?: string; userAgent?: string }
+  ): Promise<{ message: string }> {
+    if (!token || typeof token !== 'string') {
+      throw new BadRequestError('Invalid or missing reset token');
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestError('New password must be at least 8 characters long');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const now = new Date();
+
+    const user = await UserModel.findOne({
+      passwordResetTokenHash: tokenHash,
+      passwordResetExpiresAt: { $gt: now },
+      isActive: true,
+    });
+
+    if (!user) {
+      throw new BadRequestError('Invalid or expired password reset token');
+    }
+
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+    user.passwordHash = newPasswordHash;
+    user.passwordResetTokenHash = null;
+    user.passwordResetExpiresAt = null;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    await user.save();
+
+    // Revoke all existing sessions upon password reset
+    await SessionModel.updateMany(
+      { userId: user._id, isRevoked: false },
+      { isRevoked: true, revokedReason: 'PASSWORD_RESET' }
+    );
+
+    await AuditService.log({
+      userId: user._id.toString(),
+      action: AuditAction.AUTH_PASSWORD_RESET_SUCCESS,
+      resourceType: AuditResourceType.USER,
+      resourceId: user._id.toString(),
+      ipAddress: clientMeta?.ip,
+      userAgent: clientMeta?.userAgent,
+      status: 'success',
+      details: { email: user.email },
+    });
+
+    return {
+      message: 'Password has been reset successfully. Please log in with your new password.',
+    };
+  }
+
   public static hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
   }

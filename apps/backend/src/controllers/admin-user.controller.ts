@@ -16,6 +16,10 @@ export const updatePermissionsSchema = z.object({
   permissions: z.array(z.nativeEnum(Permission)),
 });
 
+export const updateStatusSchema = z.object({
+  isActive: z.boolean(),
+});
+
 export class AdminUserController {
   /**
    * Lists users with pagination and search
@@ -87,6 +91,47 @@ export class AdminUserController {
       const updatedUser = await AdminUserService.updatePermissions(
         id,
         parseResult.data.permissions,
+        req.user,
+        {
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        }
+      );
+
+      const response: IApiResponse = {
+        success: true,
+        data: updatedUser,
+        error: null,
+        meta: {
+          timestamp: new Date().toISOString(),
+          requestId: req.requestId || crypto.randomUUID(),
+        },
+      };
+
+      res.status(200).json(response);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Activates or deactivates an employee account
+   */
+  public static async updateStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new UnauthorizedError('Authentication is required');
+      }
+
+      const id = req.params.id as string;
+      const parseResult = updateStatusSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        throw new BadRequestError(parseResult.error.errors[0]?.message || 'Invalid status payload');
+      }
+
+      const updatedUser = await AdminUserService.updateStatus(
+        id,
+        parseResult.data.isActive,
         req.user,
         {
           ip: req.ip,

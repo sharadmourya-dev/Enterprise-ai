@@ -233,6 +233,25 @@ describe('Phase 5 — Conversation Lifecycle, Ownership & Security Tests (Part B
         .send({ content: 'Post to deleted conversation' });
       expect(sendRes.status).toBe(404);
     });
+
+    it('10b. Renames conversation and updates title in database', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/conversations')
+        .set('Authorization', `Bearer ${tokenUserA}`)
+        .send({ title: 'Before Rename Title' });
+      const convId = createRes.body.data.id;
+
+      const renameRes = await request(app)
+        .patch(`/api/v1/conversations/${convId}`)
+        .set('Authorization', `Bearer ${tokenUserA}`)
+        .send({ title: 'After Rename Title' });
+
+      expect(renameRes.status).toBe(200);
+      expect(renameRes.body.data.title).toBe('After Rename Title');
+
+      const saved = await ConversationModel.findById(convId);
+      expect(saved!.title).toBe('After Rename Title');
+    });
   });
 
   describe('B3 & I1. Message Validation & Idempotency', () => {

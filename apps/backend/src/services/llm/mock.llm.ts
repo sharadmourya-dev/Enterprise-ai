@@ -56,6 +56,32 @@ export class MockLlmProvider implements ILlmProvider {
       };
     }
 
+    // Query rewriting prompt handling in mock
+    if (
+      options?.systemInstruction?.includes('query formulation') ||
+      prompt.includes('STANDALONE SEARCH QUERY')
+    ) {
+      const questionMatch = prompt.match(/LATEST USER FOLLOW-UP QUESTION:\s*([^\n\r]+)/i);
+      const question = questionMatch ? questionMatch[1].trim() : prompt.trim();
+
+      if (/contractor/i.test(question) && /leave policy/i.test(prompt)) {
+        const text = 'What is the annual leave policy for contractors?';
+        return {
+          text,
+          promptTokens: Math.ceil(prompt.length / 4),
+          completionTokens: Math.ceil(text.length / 4),
+          model: this.modelName,
+        };
+      }
+
+      return {
+        text: question,
+        promptTokens: Math.ceil(prompt.length / 4),
+        completionTokens: Math.ceil(question.length / 4),
+        model: this.modelName,
+      };
+    }
+
     // Default deterministic synthesis based on prompt evidence
     const evidenceMatches = prompt.match(/\[S\d+\]/g);
     if (!evidenceMatches || evidenceMatches.length === 0) {

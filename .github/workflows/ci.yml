@@ -42,6 +42,52 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build shared packages
+        run: npm run build:packages
+
+      - name: Lint all workspaces
+        run: npm run lint
+
+      - name: Typecheck all workspaces
+        run: npm run typecheck
+
+      - name: Run backend unit tests (isolated)
+        run: npm run test:unit --workspace=@enterprise-ai/backend
+
+      - name: Run frontend tests
+        run: npm run test --workspace=@enterprise-ai/frontend
+
+      - name: Validate Docker Compose configurations
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f infrastructure/docker-compose.infra.yml config --quiet
+
+      - name: Build backend Docker image
+        run: docker build -f apps/backend/Dockerfile -t enterprise-ai-backend:ci .
+
+      - name: Build frontend Docker image
+        run: docker build -f apps/frontend/Dockerfile --build-arg NEXT_PUBLIC_API_URL=http://localhost:5000/api/v1 -t enterprise-ai-frontend:ci .
+
+      - name: Scan backend container image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: 'enterprise-ai-backend:ci'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Scan frontend container image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: 'enterprise-ai-frontend:ci'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
       - name: Start isolated local test infrastructure
         run: npm run infra:up
 
@@ -102,17 +148,8 @@ jobs:
             waitForAll();
           '
 
-      - name: Build shared packages
-        run: npm run build:packages
-
-      - name: Typecheck all workspaces
-        run: npm run typecheck
-
-      - name: Run backend tests
+      - name: Run backend full integration tests
         run: npm run test --workspace=@enterprise-ai/backend
-
-      - name: Run frontend tests
-        run: npm run test --workspace=@enterprise-ai/frontend
 
       - name: Build backend and frontend production bundles
         run: npm run build

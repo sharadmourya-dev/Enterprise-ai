@@ -49,6 +49,16 @@ router.delete(
   ConversationController.deleteConversation
 );
 
+// PATCH /api/v1/conversations/:conversationId - Rename conversation
+router.patch(
+  '/:conversationId',
+  createRateLimiter({
+    category: 'conversation_update',
+    maxRequests: env.RATE_LIMIT_CONVERSATION_MAX_REQUESTS,
+  }),
+  ConversationController.renameConversation
+);
+
 // GET /api/v1/conversations/:conversationId/messages - Get paginated message history
 router.get(
   '/:conversationId/messages',

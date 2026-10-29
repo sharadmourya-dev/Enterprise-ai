@@ -105,6 +105,8 @@ export const envSchema = z
     // Conversation & Multi-Turn
     CONVERSATION_HISTORY_LIMIT: z.coerce.number().min(1).max(50).default(10),
     CONVERSATION_MESSAGE_MAX_CHARS: z.coerce.number().min(10).max(20000).default(4000),
+    QUERY_REWRITE_TIMEOUT_MS: z.coerce.number().min(500).max(30000).default(3000),
+    QUERY_REWRITE_HISTORY_LIMIT: z.coerce.number().min(1).max(20).default(6),
 
     // Redis Cache
     RAG_CACHE_ENABLED: booleanEnv(true),

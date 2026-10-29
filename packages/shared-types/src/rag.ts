@@ -62,3 +62,25 @@ export interface IRetrievalCandidate {
   allowedUserIds: string[];
   isActive: boolean;
 }
+
+export interface ISearchResultItem {
+  chunkId: string;
+  documentId: string;
+  revision: number;
+  title: string;
+  content: string;
+  pageNumber?: number;
+  sectionHeader?: string;
+  score: number;
+  rank: number;
+}
+
+export interface ISearchResponse {
+  query: string;
+  results: ISearchResultItem[];
+  total: number;
+  timings: {
+    embeddingMs: number;
+    searchMs: number;
+  };
+}

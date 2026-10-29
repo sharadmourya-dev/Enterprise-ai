@@ -20,6 +20,20 @@ export const refreshSchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),
 });
 
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters long').max(128),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('Invalid email address'),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Reset token is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters long').max(128),
+});
+
 export class AuthController {
   public static async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -123,6 +137,82 @@ export class AuthController {
       const response: IApiResponse = {
         success: true,
         data: profile,
+        error: null,
+        meta: {
+          timestamp: new Date().toISOString(),
+          requestId: req.requestId || crypto.randomUUID(),
+        },
+      };
+
+      res.status(200).json(response);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  public static async changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new Error('Authentication is required');
+      }
+
+      const { currentPassword, newPassword } = req.body;
+      const result = await AuthService.changePassword(req.user.sub, currentPassword, newPassword, {
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      const response: IApiResponse = {
+        success: true,
+        data: result,
+        error: null,
+        meta: {
+          timestamp: new Date().toISOString(),
+          requestId: req.requestId || crypto.randomUUID(),
+        },
+      };
+
+      res.status(200).json(response);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  public static async forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { email } = req.body;
+      const result = await AuthService.forgotPassword(email, {
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      const response: IApiResponse = {
+        success: true,
+        data: result,
+        error: null,
+        meta: {
+          timestamp: new Date().toISOString(),
+          requestId: req.requestId || crypto.randomUUID(),
+        },
+      };
+
+      res.status(200).json(response);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  public static async resetPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { token, newPassword } = req.body;
+      const result = await AuthService.resetPassword(token, newPassword, {
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      const response: IApiResponse = {
+        success: true,
+        data: result,
         error: null,
         meta: {
           timestamp: new Date().toISOString(),

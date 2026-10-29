@@ -63,32 +63,187 @@ describe('Document Storage Abstraction & Drivers (Unit Tests)', () => {
       }
     });
 
-    it('saves a file and returns normalized storage path inside storage dir', async () => {
+    // 1. Saving a file returns a portable relative filename
+    it('saves a file and returns a portable relative filename without absolute paths', async () => {
       const sampleBytes = Buffer.from('Original document contents for local storage test');
       const { storagePath, storageFilename } = await localDriver.saveFile(sampleBytes, 'test-doc.pdf');
 
-      expect(storagePath.startsWith(tempDir)).toBe(true);
-      expect(storageFilename.endsWith('.pdf')).toBe(true);
-      expect(await localDriver.fileExists(storagePath)).toBe(true);
+      expect(storagePath).toBe(storageFilename);
+      expect(path.isAbsolute(storagePath)).toBe(false);
+      expect(storageFilename).toMatch(/^[0-9a-f-]+\.pdf$/);
+      expect(storagePath).not.toContain('/');
+      expect(storagePath).not.toContain('\\');
 
-      const readBytes = await localDriver.readFile(storagePath);
+      // Verify file was written to the storage directory on disk
+      const physicalFile = path.join(tempDir, storageFilename);
+      const existsOnDisk = await fs.stat(physicalFile).then(() => true).catch(() => false);
+      expect(existsOnDisk).toBe(true);
+    });
+
+    // 2. Reading a valid stored filename succeeds
+    it('reads a valid stored portable filename and returns identical bytes', async () => {
+      const sampleBytes = Buffer.from('Testing reading valid stored filename');
+      const { storageFilename } = await localDriver.saveFile(sampleBytes, 'read-test.txt');
+
+      const readBytes = await localDriver.readFile(storageFilename);
       expect(readBytes.equals(sampleBytes)).toBe(true);
     });
 
-    it('rejects path traversal attempts on save, read, and delete', async () => {
-      const sampleBytes = Buffer.from('attack');
-      const traversalPath = path.resolve(tempDir, '../outside-file.txt');
+    // 3. fileExists correctly recognizes an existing file
+    it('correctly recognizes existing and nonexistent files', async () => {
+      const sampleBytes = Buffer.from('Testing file existence');
+      const { storageFilename } = await localDriver.saveFile(sampleBytes, 'exist-test.txt');
 
-      await expect(localDriver.readFile(traversalPath)).rejects.toThrow(/path traversal/);
-      await expect(localDriver.deleteFile(traversalPath)).rejects.toThrow(/path traversal/);
-      expect(await localDriver.fileExists(traversalPath)).toBe(false);
+      expect(await localDriver.fileExists(storageFilename)).toBe(true);
+      expect(await localDriver.fileExists('00000000-0000-0000-0000-000000000000.txt')).toBe(false);
     });
 
-    it('idempotently deletes files without throwing when file does not exist', async () => {
-      const nonExistentPath = path.join(tempDir, 'does-not-exist.pdf');
-      await expect(localDriver.deleteFile(nonExistentPath)).resolves.not.toThrow();
+    // 4. Deleting a valid file works within the storage root
+    it('deletes a valid file within the storage root and is idempotent for missing files', async () => {
+      const sampleBytes = Buffer.from('File to be deleted');
+      const { storageFilename } = await localDriver.saveFile(sampleBytes, 'delete-me.txt');
+
+      expect(await localDriver.fileExists(storageFilename)).toBe(true);
+      await localDriver.deleteFile(storageFilename);
+      expect(await localDriver.fileExists(storageFilename)).toBe(false);
+
+      // Idempotently delete already removed or nonexistent file without error
+      await expect(localDriver.deleteFile(storageFilename)).resolves.not.toThrow();
+      await expect(localDriver.deleteFile('11111111-2222-3333-4444-555555555555.txt')).resolves.not.toThrow();
     });
 
+    // 5. Missing files return the expected controlled error (NotFoundError / 404)
+    it('throws NotFoundError with code NOT_FOUND when reading a missing file', async () => {
+      const missingKey = 'e2c34567-89ab-cdef-0123-456789abcdef.pdf';
+      await expect(localDriver.readFile(missingKey)).rejects.toThrow(NotFoundError);
+
+      try {
+        await localDriver.readFile(missingKey);
+        fail('Expected NotFoundError');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(NotFoundError);
+        expect(err.statusCode).toBe(404);
+        expect(err.errorCode).toBe('NOT_FOUND');
+      }
+    });
+
+    // 6. Reject ../../etc/passwd and similar traversal attempts
+    it('rejects path traversal attempts on read, delete, and fileExists', async () => {
+      const traversalAttempts = [
+        '../../etc/passwd',
+        '../outside-file.txt',
+        '..\\windows\\win.ini',
+        'sub/../../secret.txt',
+      ];
+
+      for (const traversalKey of traversalAttempts) {
+        await expect(localDriver.readFile(traversalKey)).rejects.toThrow(BadRequestError);
+        await expect(localDriver.deleteFile(traversalKey)).rejects.toThrow(BadRequestError);
+        expect(await localDriver.fileExists(traversalKey)).toBe(false);
+      }
+    });
+
+    // 7. Reject absolute Windows paths such as C:\...
+    it('rejects absolute Windows paths and UNC paths', async () => {
+      const windowsPaths = [
+        'C:\\Windows\\System32\\drivers\\etc\\hosts',
+        'C:/app/data/uploads/file.pdf',
+        'D:\\data\\file.txt',
+        '\\\\server\\share\\secret.docx',
+      ];
+
+      for (const winPath of windowsPaths) {
+        await expect(localDriver.readFile(winPath)).rejects.toThrow(BadRequestError);
+        await expect(localDriver.readFile(winPath)).rejects.toThrow(/absolute paths are prohibited/);
+        await expect(localDriver.deleteFile(winPath)).rejects.toThrow(BadRequestError);
+        expect(await localDriver.fileExists(winPath)).toBe(false);
+      }
+    });
+
+    // 8. Reject unexpected absolute Unix paths such as /documents/example.pdf
+    it('rejects absolute Unix paths', async () => {
+      const unixPaths = [
+        '/documents/example.pdf',
+        '/etc/passwd',
+        '/app/data/uploads/file.txt',
+        '/var/log/system.log',
+      ];
+
+      for (const unixPath of unixPaths) {
+        await expect(localDriver.readFile(unixPath)).rejects.toThrow(BadRequestError);
+        await expect(localDriver.readFile(unixPath)).rejects.toThrow(/absolute paths are prohibited/);
+        await expect(localDriver.deleteFile(unixPath)).rejects.toThrow(BadRequestError);
+        expect(await localDriver.fileExists(unixPath)).toBe(false);
+      }
+    });
+
+    // 9. Reject null-byte and separator-based bypass attempts
+    it('rejects empty keys, null bytes, and directory separators', async () => {
+      // Empty & whitespace
+      await expect(localDriver.readFile('')).rejects.toThrow(BadRequestError);
+      await expect(localDriver.readFile('   ')).rejects.toThrow(/cannot be empty/);
+
+      // Null bytes
+      const nullByteKey = 'document\0.pdf';
+      await expect(localDriver.readFile(nullByteKey)).rejects.toThrow(BadRequestError);
+      await expect(localDriver.readFile(nullByteKey)).rejects.toThrow(/null bytes are prohibited/);
+      await expect(localDriver.deleteFile(nullByteKey)).rejects.toThrow(BadRequestError);
+      expect(await localDriver.fileExists(nullByteKey)).toBe(false);
+
+      // Directory separators
+      const separatorKeys = ['folder/file.pdf', 'folder\\file.pdf'];
+      for (const sepKey of separatorKeys) {
+        await expect(localDriver.readFile(sepKey)).rejects.toThrow(BadRequestError);
+        await expect(localDriver.readFile(sepKey)).rejects.toThrow(/path separators are prohibited/);
+        await expect(localDriver.deleteFile(sepKey)).rejects.toThrow(BadRequestError);
+        expect(await localDriver.fileExists(sepKey)).toBe(false);
+      }
+    });
+
+    // 10. Reject symlink escapes where supported, and verify mock symlink defenses
+    it('defends against symlink escapes to protect host filesystem', async () => {
+      // Test platform symlink behavior if environment supports it
+      const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'outside-test-'));
+      const outsideFile = path.join(outsideDir, 'secret.txt');
+      await fs.writeFile(outsideFile, 'Sensitive host data');
+
+      try {
+        const linkPath = path.join(tempDir, 'symlink-escape.txt');
+        await fs.symlink(outsideFile, linkPath);
+
+        // If symlink was successfully created on this platform:
+        await expect(localDriver.readFile('symlink-escape.txt')).rejects.toThrow(BadRequestError);
+        await expect(localDriver.readFile('symlink-escape.txt')).rejects.toThrow(/symlink traversal/);
+        await expect(localDriver.deleteFile('symlink-escape.txt')).rejects.toThrow(BadRequestError);
+        expect(await localDriver.fileExists('symlink-escape.txt')).toBe(false);
+      } catch (err: any) {
+        // On Windows unprivileged environments without SeCreateSymbolicLinkPrivilege,
+        // fs.symlink throws EPERM. In that case, verify via spy.
+        if (err.code !== 'EPERM' && err.code !== 'ENOTSUP') {
+          throw err;
+        }
+      } finally {
+        await fs.rm(outsideDir, { recursive: true, force: true }).catch(() => {});
+      }
+
+      // Deterministic spy test covering symlink escape logic on all platforms
+      const lstatSpy = jest.spyOn(fs, 'lstat').mockResolvedValueOnce({
+        isSymbolicLink: () => true,
+      } as any);
+      const realpathSpy = jest.spyOn(fs, 'realpath').mockImplementation(async (targetPath: any) => {
+        if (targetPath.toString().includes('fake-symlink.txt')) {
+          return 'C:\\sensitive\\outside\\secret.txt';
+        }
+        return tempDir;
+      });
+
+      await expect(localDriver.readFile('fake-symlink.txt')).rejects.toThrow(/symlink traversal/);
+
+      lstatSpy.mockRestore();
+      realpathSpy.mockRestore();
+    });
+
+    // Size limit enforcement
     it('enforces maximum file size limit (50 MB default)', async () => {
       const smallDriver = new LocalStorageDriver(tempDir);
       jest.spyOn(smallDriver, 'getMaxUploadSizeBytes').mockReturnValue(100);
@@ -383,5 +538,41 @@ describe('Document Storage Abstraction & Drivers (Unit Tests)', () => {
 
       (env as any).STORAGE_DRIVER = 'local'; // Reset
     });
+
+    it('preserves public storage interface end-to-end with real LocalStorageDriver', async () => {
+      // Temporarily use real LocalStorageDriver with a temporary directory
+      const tempFacadeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'storage-facade-test-'));
+      const realLocal = new LocalStorageDriver(tempFacadeDir);
+      StorageService.setLocalDriver(realLocal);
+      (env as any).STORAGE_DRIVER = 'local';
+
+      try {
+        const testContent = Buffer.from('Testing storage caller contract preservation');
+        const saveResult = await StorageService.saveFile(testContent, 'caller-contract.txt');
+
+        // Verify portable return contract
+        expect(saveResult.storagePath).toBe(saveResult.storageFilename);
+        expect(path.isAbsolute(saveResult.storagePath)).toBe(false);
+        expect(saveResult.storageFilename).toMatch(/^[0-9a-f-]+\.txt$/);
+
+        // Verify fileExists and readFile through StorageService
+        expect(await StorageService.fileExists(saveResult.storagePath)).toBe(true);
+        const readBuffer = await StorageService.readFile(saveResult.storagePath);
+        expect(readBuffer.equals(testContent)).toBe(true);
+
+        // Verify missing file throws NotFoundError through StorageService
+        await expect(StorageService.readFile('00000000-0000-0000-0000-000000000000.txt')).rejects.toThrow(NotFoundError);
+
+        // Verify path traversal is rejected through StorageService
+        await expect(StorageService.readFile('../../etc/passwd')).rejects.toThrow(BadRequestError);
+
+        // Verify deleteFile through StorageService
+        await StorageService.deleteFile(saveResult.storagePath);
+        expect(await StorageService.fileExists(saveResult.storagePath)).toBe(false);
+      } finally {
+        await fs.rm(tempFacadeDir, { recursive: true, force: true }).catch(() => {});
+      }
+    });
   });
 });
+

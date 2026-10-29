@@ -107,6 +107,38 @@ export class ConversationController {
   }
 
   /**
+   * PATCH /api/v1/conversations/:conversationId
+   */
+  public static async renameConversation(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const user = (req as any).user;
+      const conversationId = req.params.conversationId as string;
+      const title = req.body?.title;
+
+      const conversation = await ConversationService.renameConversation(
+        conversationId,
+        user,
+        title,
+        {
+          ip: req.ip,
+          userAgent: req.headers['user-agent'] as string,
+        }
+      );
+
+      res.status(200).json({
+        success: true,
+        data: conversation,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * GET /api/v1/conversations/:conversationId/messages
    */
   public static async getMessages(

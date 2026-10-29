@@ -19,6 +19,7 @@ import { RetrievalService } from '../retrieval.service.js';
 import { ContextAssembler } from '../rag/context-assembler.js';
 import { CitationValidator } from '../rag/citation-validator.js';
 import { PromptBuilder } from '../rag/prompt-builder.js';
+import { QueryRewriterService } from '../rag/query-rewriter.service.js';
 import { LlmFactory } from '../llm/llm.factory.js';
 import { AuditService } from '../audit.service.js';
 import { RagCacheService } from '../cache/rag-cache.service.js';
@@ -154,6 +155,54 @@ export class ConversationService {
       status: 'success',
       details: { operation: 'delete', conversationId: conversation._id.toString() },
     });
+  }
+
+  /**
+   * Renames a conversation with strict ownership enforcement and validation
+   */
+  public static async renameConversation(
+    conversationId: string,
+    user: IJwtPayload,
+    title: unknown,
+    clientMeta?: { ip?: string; userAgent?: string }
+  ): Promise<IConversation> {
+    if (typeof title !== 'string') {
+      throw new BadRequestError('Conversation title must be a string');
+    }
+
+    const trimmedTitle = title.trim();
+    if (trimmedTitle.length === 0) {
+      throw new BadRequestError('Conversation title cannot be empty');
+    }
+
+    if (trimmedTitle.length > 150) {
+      throw new BadRequestError('Conversation title cannot exceed 150 characters');
+    }
+
+    const conversation = await this.getConversationById(conversationId, user);
+
+    const updated = await ConversationModel.findByIdAndUpdate(
+      conversation._id,
+      { $set: { title: trimmedTitle } },
+      { new: true }
+    );
+
+    if (!updated) {
+      throw new NotFoundError('Conversation not found');
+    }
+
+    await AuditService.log({
+      userId: user.sub,
+      action: AuditAction.CHAT_QUERY,
+      resourceType: AuditResourceType.CONVERSATION,
+      resourceId: conversation._id.toString(),
+      ipAddress: clientMeta?.ip || '127.0.0.1',
+      userAgent: clientMeta?.userAgent || 'internal',
+      status: 'success',
+      details: { operation: 'rename', conversationId: conversation._id.toString() },
+    });
+
+    return this.formatConversation(updated);
   }
 
   /**
@@ -296,13 +345,20 @@ export class ConversationService {
         content: m.content,
       }));
 
-      // 4. Check cache for query under current authorization
+      // 4. Resolve contextual follow-up query rewriting (resolves ambiguous references)
+      const effectiveQuery = await QueryRewriterService.rewriteQuery(
+        rawContent,
+        chronologicalHistory,
+        { llmProvider: LlmFactory.getProvider() }
+      );
+
+      // 5. Check cache for effective query under current authorization
       const llmProvider = LlmFactory.getProvider();
       const modelName = llmProvider.modelName;
 
-      // Cache key incorporates query + user authorization fingerprint and captures generation counter
+      // Cache key incorporates effective query + user authorization fingerprint and captures generation counter
       const { cached, generation: queryGeneration } = await RagCacheService.getWithGeneration(
-        { query: rawContent },
+        { query: effectiveQuery },
         user,
         modelName
       );
@@ -320,8 +376,8 @@ export class ConversationService {
         insufficientEvidence = cached.insufficientEvidence;
         candidatesCount = cached.retrievalMetadata?.totalCandidates ?? 0;
       } else {
-        // 5. Execute fresh RAG retrieval with current user's authorization & active revision checks
-        const searchRes = await RetrievalService.search(rawContent, user, {
+        // 6. Execute fresh RAG retrieval with current user's authorization & active revision checks
+        const searchRes = await RetrievalService.search(effectiveQuery, user, {
           topK: env.RAG_TOP_K,
           similarityThreshold: env.RAG_SIMILARITY_THRESHOLD,
         });
@@ -396,7 +452,7 @@ export class ConversationService {
               // Cache grounded response with in-flight invalidation protection
               if (!insufficientEvidence) {
                 await RagCacheService.set(
-                  { query: rawContent },
+                  { query: effectiveQuery },
                   user,
                   modelName,
                   {

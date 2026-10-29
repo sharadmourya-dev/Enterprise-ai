@@ -13,10 +13,14 @@ export enum AuditAction {
   ADMIN_ROLE_CHANGE = 'admin.user_role_change',
   ADMIN_CLEARANCE_CHANGE = 'admin.user_clearance_change',
   ADMIN_PERMISSION_CHANGE = 'admin.user_permission_change',
+  ADMIN_STATUS_CHANGE = 'admin.user_status_change',
   ADMIN_EXPORT_LOGS = 'admin.export_logs',
   ADMIN_PURGE = 'admin.purge',
   ADMIN_VERIFY_CHAIN = 'admin.verify_chain',
   AUTH_ACCESS_DENIED = 'auth.access_denied',
+  AUTH_PASSWORD_CHANGE = 'auth.password_change',
+  AUTH_PASSWORD_RESET_REQUEST = 'auth.password_reset_request',
+  AUTH_PASSWORD_RESET_SUCCESS = 'auth.password_reset_success',
 }
 
 export enum AuditResourceType {

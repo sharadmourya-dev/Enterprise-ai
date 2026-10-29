@@ -114,6 +114,119 @@ enterprise-ai/
 
 ---
 
+## Full-Stack Docker Containerization (Local Demo)
+
+The complete Enterprise AI Copilot stack can be run locally using Docker Compose, orchestrating the Next.js frontend, Express API backend, asynchronous BullMQ worker, MongoDB replica set (`rs0`), Redis cache/queue, and Qdrant vector database.
+
+### 1. Prerequisites
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with Docker Compose v2+ installed and running.
+- At least 4 GB of RAM allocated to Docker.
+- Port availability on the host machine:
+  - `3000`: Next.js Frontend
+  - `5000`: Express API Backend
+  - `27017`: MongoDB Replica Set
+  - `6379`: Redis Cache & Queue
+  - `6333`: Qdrant REST API
+  - `6334`: Qdrant gRPC
+
+### 2. Environment Configuration
+Copy the master environment template:
+```powershell
+Copy-Item .env.example .env
+```
+Docker Compose provides safe, out-of-the-box demo defaults for internal service hostnames and 256-bit cryptographic keys (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `AUDIT_LOG_HMAC_SECRET`). You can override any variable by setting it in `.env`.
+
+### 3. AI Provider Key Setup
+To enable document indexing embeddings and LLM answer generation:
+1. Open `.env` in your editor.
+2. Set your active provider and API key:
+   ```bash
+   LLM_PROVIDER=gemini
+   GEMINI_API_KEY=your_gemini_api_key_here
+   ```
+   Or for OpenAI:
+   ```bash
+   LLM_PROVIDER=openai
+   OPENAI_API_KEY=your_openai_api_key_here
+   ```
+> **Security Note:** Never commit your `.env` file or bake API keys into Docker images. `.dockerignore` automatically excludes `.env` and sensitive files from container builds.
+
+### 4. Start the Full Stack
+Build the multi-stage application images and launch all services in detached mode:
+```powershell
+# Using Docker Compose directly
+docker compose up -d --build
+
+# Or using the root package shortcut
+npm.cmd run docker:up
+```
+
+### 5. Inspect Service Health & Logs
+Check container status and health checks:
+```powershell
+docker compose ps
+# Or: npm.cmd run docker:status
+```
+All services (`mongodb`, `redis`, `qdrant`, `backend`, `worker`, `frontend`) should display `Up` with `(healthy)`.
+
+Inspect real-time logs:
+```powershell
+# Follow logs for all services
+docker compose logs -f
+
+# Follow logs for a specific service
+docker compose logs -f backend
+docker compose logs -f worker
+docker compose logs -f frontend
+```
+
+### 6. Application Access URLs
+- **Web UI (Frontend)**: [http://localhost:3000](http://localhost:3000)
+- **REST API Base**: [http://localhost:5000/api/v1](http://localhost:5000/api/v1)
+- **Backend Readiness Healthcheck**: [http://localhost:5000/health/readiness](http://localhost:5000/health/readiness)
+- **Backend Liveness Healthcheck**: [http://localhost:5000/health/liveness](http://localhost:5000/health/liveness)
+- **Interactive Swagger / OpenAPI Docs**: [http://localhost:5000/api/docs](http://localhost:5000/api/docs)
+- **Qdrant Vector DB REST API**: [http://localhost:6333/dashboard](http://localhost:6333/dashboard)
+
+### 7. MongoDB Replica Set Initialization
+MongoDB requires a replica set (`rs0`) to support multi-document ACID transactions used by authentication, ACLs, and conversation models. The `mongo-init-replica` ephemeral container runs on startup to initiate `rs0` idempotently. The backend and worker containers automatically wait for this step to complete before connecting.
+
+### 8. Stopping Services
+Stop and remove containers while preserving persistent volume data:
+```powershell
+docker compose down
+# Or: npm.cmd run docker:down
+```
+
+To stop containers and **wipe all persistent database and vector data**:
+```powershell
+docker compose down -v
+```
+
+### 9. Persistent Storage Volumes
+The demo configuration uses four named Docker volumes to persist state across restarts:
+- `mongo_data`: Persists MongoDB user records, documents, chunk metadata, conversation histories, and HMAC audit chains (`/data/db`).
+- `redis_data`: Persists Redis append-only file (AOF) state, rate limit counters, and queue state (`/data`).
+- `qdrant_data`: Persists Qdrant vector embeddings, HNSW graphs, and payload indexes (`/qdrant/storage`).
+- `upload_data`: Shared volume between `backend` and `worker` containers storing uploaded raw documents (`/app/data/uploads`).
+
+### 10. Troubleshooting
+- **Backend fails healthcheck on startup**:
+  - Check `docker compose logs backend`. Verify that MongoDB replica set is initialized and that Qdrant and Redis report healthy.
+- **Worker fails or crashes**:
+  - Check `docker compose logs worker`. Verify Redis is healthy on port `6379` and that `/app/data/uploads` has write permissions.
+- **RAG answers return provider error or fallback message**:
+  - Check `docker compose logs -f backend`. Ensure `GEMINI_API_KEY` or `OPENAI_API_KEY` is provided in `.env` and that your API quota is active.
+- **Frontend fails to reach backend**:
+  - Ensure backend container is healthy on port `5000`. By default, the browser accesses the backend via `http://localhost:5000/api/v1`. If running on a remote host, configure `NEXT_PUBLIC_API_URL` during build.
+
+### 11. Local Demo Limitations
+- Single-node MongoDB replica set is designed for local development and demonstration; multi-node clustering with election arbiters is required for production fault tolerance.
+- Internal container networking uses unencrypted HTTP/TCP within the bridge network (`enterprise_ai_net`).
+- Development secrets are supplied as fallback defaults for demo convenience; production deployments must supply cryptographically random secrets from a secret manager (e.g. AWS Secrets Manager or HashiCorp Vault).
+
+---
+
 ## Local Development Quickstart
 
 ### Prerequisites

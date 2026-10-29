@@ -1,0 +1,201 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: enterprise_ai_mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: enterprise_ai
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - enterprise_ai_net
+
+  mongo-init-replica:
+    image: mongo:7.0
+    container_name: enterprise_ai_mongo_init
+    restart: "no"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Checking MongoDB replica set status...';
+        mongosh --host mongodb:27017 --eval '
+          try {
+            const status = rs.status();
+            if (status.ok === 1) {
+              console.log(\"Replica set rs0 is already initiated and healthy.\");
+            }
+          } catch (e) {
+            console.log(\"Initiating replica set rs0...\");
+            const res = rs.initiate({
+              _id: \"rs0\",
+              members: [{ _id: 0, host: \"mongodb:27017\" }]
+            });
+            console.log(\"Initiation result:\", JSON.stringify(res));
+          }
+        '
+      "
+    networks:
+      - enterprise_ai_net
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: enterprise_ai_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - enterprise_ai_net
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: enterprise_ai_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333" # HTTP REST API
+      - "6334:6334" # gRPC API
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__LOG_LEVEL: INFO
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333 && echo -e \"GET /readyz HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && cat <&3 | grep -q \"200 OK\"' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - enterprise_ai_net
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: enterprise_ai_backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5000}:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-local_demo_jwt_access_secret_key_minimum_32_characters_123456}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-local_demo_jwt_refresh_secret_key_minimum_32_characters_123456}
+      AUDIT_LOG_HMAC_SECRET: ${AUDIT_LOG_HMAC_SECRET:-local_demo_audit_hmac_secret_key_minimum_32_characters_123456}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017/enterprise_ai?replicaSet=rs0&directConnection=true}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      QDRANT_URL: http://qdrant:6333
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      EMBEDDED_WORKER_ENABLED: "false"
+      INGESTION_WORKER_CONCURRENCY: 1
+      UPLOAD_STORAGE_PATH: /app/data/uploads
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      TRUST_PROXY: loopback
+      RATE_LIMIT_ENABLED: "true"
+      RAG_CACHE_ENABLED: "true"
+    volumes:
+      - upload_data:/app/data/uploads
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      mongo-init-replica:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - enterprise_ai_net
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: enterprise_ai_worker
+    restart: unless-stopped
+    command: ["node", "apps/backend/dist/worker.js"]
+    healthcheck:
+      disable: true
+    environment:
+      NODE_ENV: production
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-local_demo_jwt_access_secret_key_minimum_32_characters_123456}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-local_demo_jwt_refresh_secret_key_minimum_32_characters_123456}
+      AUDIT_LOG_HMAC_SECRET: ${AUDIT_LOG_HMAC_SECRET:-local_demo_audit_hmac_secret_key_minimum_32_characters_123456}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017/enterprise_ai?replicaSet=rs0&directConnection=true}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      QDRANT_URL: http://qdrant:6333
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      UPLOAD_STORAGE_PATH: /app/data/uploads
+    volumes:
+      - upload_data:/app/data/uploads
+    depends_on:
+      backend:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - enterprise_ai_net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000/api/v1}
+    container_name: enterprise_ai_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000/api/v1}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - enterprise_ai_net
+
+volumes:
+  mongo_data:
+    name: infrastructure_mongo_data
+  redis_data:
+    name: infrastructure_redis_data
+  qdrant_data:
+    name: infrastructure_qdrant_data
+  upload_data:
+    name: enterprise_ai_upload_data
+
+networks:
+  enterprise_ai_net:
+    driver: bridge

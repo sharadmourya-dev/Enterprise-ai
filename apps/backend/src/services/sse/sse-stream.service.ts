@@ -14,6 +14,7 @@ import { RetrievalService } from '../retrieval.service.js';
 import { ContextAssembler } from '../rag/context-assembler.js';
 import { CitationValidator } from '../rag/citation-validator.js';
 import { PromptBuilder } from '../rag/prompt-builder.js';
+import { QueryRewriterService } from '../rag/query-rewriter.service.js';
 import { LlmFactory } from '../llm/llm.factory.js';
 import { AuditService } from '../audit.service.js';
 import { RagCacheService } from '../cache/rag-cache.service.js';
@@ -196,11 +197,36 @@ export class SseStreamService {
 
       if (isClientDisconnected) return;
 
-      // 6. Check cache for query under current authorization
       const llmProvider = LlmFactory.getProvider();
       const modelName = llmProvider.modelName;
+
+      // 6. Load bounded conversation history for contextual disambiguation & prompt construction
+      const priorMessages = await MessageModel.find({
+        conversationId: conversation._id,
+        _id: { $ne: userMessage._id },
+        status: 'completed',
+      })
+        .sort({ createdAt: -1 })
+        .limit(env.CONVERSATION_HISTORY_LIMIT)
+        .lean();
+
+      const chronologicalHistory = priorMessages.reverse().map((m: any) => ({
+        sender: m.sender,
+        content: m.content,
+      }));
+
+      // 7. Resolve contextual follow-up query rewriting (resolves ambiguous references)
+      const effectiveQuery = await QueryRewriterService.rewriteQuery(
+        content,
+        chronologicalHistory,
+        { abortSignal: abortController.signal, llmProvider }
+      );
+
+      if (isClientDisconnected) return;
+
+      // 8. Check cache for effective query under current authorization
       const { cached, generation: queryGeneration } = await RagCacheService.getWithGeneration(
-        { query: content },
+        { query: effectiveQuery },
         user,
         modelName
       );
@@ -214,23 +240,8 @@ export class SseStreamService {
         finalAnswer = cached.answer;
         finalCitations = cached.citations;
       } else {
-        // 7. Load bounded conversation history
-        const priorMessages = await MessageModel.find({
-          conversationId: conversation._id,
-          _id: { $ne: userMessage._id },
-          status: 'completed',
-        })
-          .sort({ createdAt: -1 })
-          .limit(env.CONVERSATION_HISTORY_LIMIT)
-          .lean();
-
-        const chronologicalHistory = priorMessages.reverse().map((m: any) => ({
-          sender: m.sender,
-          content: m.content,
-        }));
-
-        // 8. Re-evaluate authorization on this turn: search with user's current principal
-        const searchRes = await RetrievalService.search(content, user, {
+        // 9. Re-evaluate authorization on this turn: search with user's current principal
+        const searchRes = await RetrievalService.search(effectiveQuery, user, {
           topK: env.RAG_TOP_K,
           similarityThreshold: env.RAG_SIMILARITY_THRESHOLD,
         });
@@ -329,7 +340,7 @@ export class SseStreamService {
             // Cache grounded response with in-flight invalidation protection
             if (!insufficientEvidence) {
               await RagCacheService.set(
-                { query: content },
+                { query: effectiveQuery },
                 user,
                 modelName,
                 {

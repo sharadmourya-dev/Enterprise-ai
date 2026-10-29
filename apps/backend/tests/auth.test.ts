@@ -200,4 +200,138 @@ describe('Authentication & Session Management API', () => {
         .expect(401);
     });
   });
+
+  describe('POST /api/v1/auth/change-password', () => {
+    let accessToken: string;
+    let refreshToken: string;
+
+    beforeEach(async () => {
+      await request(app).post('/api/v1/auth/register').send(validRegistration);
+      const loginRes = await request(app).post('/api/v1/auth/login').send({
+        email: validRegistration.email,
+        password: validRegistration.password,
+      });
+      accessToken = loginRes.body.data.tokens.accessToken;
+      refreshToken = loginRes.body.data.tokens.refreshToken;
+    });
+
+    it('rejects unauthenticated password change with 401', async () => {
+      await request(app)
+        .post('/api/v1/auth/change-password')
+        .send({
+          currentPassword: validRegistration.password,
+          newPassword: 'BrandNewPassword123!',
+        })
+        .expect(401);
+    });
+
+    it('rejects incorrect current password with 400', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/change-password')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          currentPassword: 'WrongPassword!',
+          newPassword: 'BrandNewPassword123!',
+        })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toContain('Current password is incorrect');
+    });
+
+    it('rejects new password under 8 characters with 422', async () => {
+      await request(app)
+        .post('/api/v1/auth/change-password')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          currentPassword: validRegistration.password,
+          newPassword: 'short',
+        })
+        .expect(422);
+    });
+
+    it('successfully changes password, logs in with new password, and revokes old sessions', async () => {
+      const changeRes = await request(app)
+        .post('/api/v1/auth/change-password')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          currentPassword: validRegistration.password,
+          newPassword: 'BrandNewPassword123!',
+        })
+        .expect(200);
+
+      expect(changeRes.body.success).toBe(true);
+
+      // Old password must fail
+      await request(app)
+        .post('/api/v1/auth/login')
+        .send({
+          email: validRegistration.email,
+          password: validRegistration.password,
+        })
+        .expect(401);
+
+      // New password must succeed
+      const newLoginRes = await request(app)
+        .post('/api/v1/auth/login')
+        .send({
+          email: validRegistration.email,
+          password: 'BrandNewPassword123!',
+        })
+        .expect(200);
+
+      expect(newLoginRes.body.success).toBe(true);
+      expect(newLoginRes.body.data.tokens.accessToken).toBeDefined();
+
+      // Old session refresh token must now be revoked
+      await request(app)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken })
+        .expect(401);
+    });
+  });
+
+  describe('POST /api/v1/auth/forgot-password & reset-password', () => {
+    beforeEach(async () => {
+      await request(app).post('/api/v1/auth/register').send(validRegistration);
+    });
+
+    it('returns generic response for existing account without leaking account details', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: validRegistration.email })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.message).toContain('If an account with that email address exists');
+
+      // Verify token hash was generated and stored on user
+      const user = await UserModel.findOne({ email: validRegistration.email });
+      expect(user!.passwordResetTokenHash).toBeDefined();
+      expect(user!.passwordResetExpiresAt).toBeDefined();
+    });
+
+    it('returns identical generic response for non-existent email address', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'nonexistent@enterprise.com' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.message).toContain('If an account with that email address exists');
+    });
+
+    it('rejects invalid or expired reset token with 400', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/reset-password')
+        .send({
+          token: 'invalid-or-fake-token',
+          newPassword: 'BrandNewPassword123!',
+        })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toContain('Invalid or expired password reset token');
+    });
+  });
 });
