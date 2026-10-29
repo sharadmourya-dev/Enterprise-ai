@@ -1,10 +1,18 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { z } from 'zod';
 
-// Load .env file from repository root if present
-dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
-dotenv.config(); // Fallback to local .env
+// Load .env file from repository root or current directory if present
+const rootEnvPath = path.resolve(process.cwd(), '../../.env');
+const directEnvPath = path.resolve(process.cwd(), '.env');
+if (fs.existsSync(rootEnvPath)) {
+  dotenv.config({ path: rootEnvPath });
+}
+if (fs.existsSync(directEnvPath)) {
+  dotenv.config({ path: directEnvPath });
+}
+dotenv.config(); // Fallback to standard dotenv resolution
 
 export const KNOWN_INSECURE_SECRETS = [
   'development_access_secret_min_32_characters_long_12345',
@@ -125,6 +133,14 @@ export const envSchema = z
     // SSE Streaming
     SSE_HEARTBEAT_INTERVAL_MS: z.coerce.number().min(1000).default(15000),
     REDIS_OPERATION_TIMEOUT_MS: z.coerce.number().min(100).default(3000),
+
+    // SMTP Mail Delivery Settings
+    SMTP_HOST: z.string().optional().default(''),
+    SMTP_PORT: z.coerce.number().default(587),
+    SMTP_SECURE: booleanEnv(false),
+    SMTP_USER: z.string().optional().default(''),
+    SMTP_PASS: z.string().optional().default(''),
+    SMTP_FROM: z.string().default('noreply@enterprise-ai.com'),
   })
   .superRefine((data, ctx) => {
     const isProduction = data.NODE_ENV === 'production';

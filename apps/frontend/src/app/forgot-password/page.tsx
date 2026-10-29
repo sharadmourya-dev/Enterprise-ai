@@ -15,7 +15,7 @@ import {
   useToast,
 } from '@/components/ui';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
-import { ApiClient } from '@/lib/api-client';
+import { ApiClient, ApiClientError } from '@/lib/api-client';
 
 export default function ForgotPasswordPage() {
   const { success, error: showErrorToast } = useToast();
@@ -49,9 +49,21 @@ export default function ForgotPasswordPage() {
         'If an account exists with that email address, password reset instructions have been sent.',
         'Request Received'
       );
-    } catch {
-      // Even if network or API error occurs, we still display the generic non-enumerating confirmation
-      setIsSubmitted(true);
+    } catch (err: unknown) {
+      if (err instanceof ApiClientError && err.statusCode === 503) {
+        showErrorToast(
+          err.message || 'Password reset service is temporarily unavailable. Please try again later.',
+          'Service Unavailable'
+        );
+      } else if (err instanceof ApiClientError && (err.code === 'NETWORK_ERROR' || err.statusCode === 0)) {
+        showErrorToast(
+          'Unable to reach authentication server. Please check your network connection or try again.',
+          'Connection Error'
+        );
+      } else {
+        // Generic non-enumerating confirmation for non-existent accounts or standard responses
+        setIsSubmitted(true);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -170,9 +182,9 @@ export default function ForgotPasswordPage() {
               </div>
 
               <div className="p-3.5 rounded-lg border border-subtle bg-surface-elevated/50 text-[11px] text-muted space-y-1 leading-relaxed">
-                <p className="font-semibold text-secondary">Demonstration Environment Notice:</p>
+                <p className="font-semibold text-secondary">Password Recovery Notice:</p>
                 <p>
-                  External email provider infrastructure (SMTP/SES) is currently not configured. Single-use cryptographic reset tokens expire in 15 minutes. Contact your administrator for direct access.
+                  Single-use cryptographic reset tokens expire in 15 minutes. If you do not see the recovery email in your inbox within a few minutes, check your spam folder or contact your administrator.
                 </p>
               </div>
 

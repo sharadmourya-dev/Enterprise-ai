@@ -2,7 +2,7 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { app } from '../src/app.js';
-import { AuditLogModel, AuditCounterModel } from '../src/models/AuditLog.model.js';
+import { AuditLogModel, AuditCounterModel, AuditChainHeadModel } from '../src/models/AuditLog.model.js';
 import { AuditService } from '../src/services/audit.service.js';
 import { env } from '../src/config/env.js';
 import {
@@ -35,6 +35,7 @@ describe('Phase 6 — Workstream D: Admin Audit Verification & Reporting Integra
   beforeEach(async () => {
     await AuditLogModel.deleteMany({});
     await AuditCounterModel.deleteMany({});
+    await AuditChainHeadModel.deleteMany({});
   });
 
   describe('D1. Authorization & Role Guards', () => {

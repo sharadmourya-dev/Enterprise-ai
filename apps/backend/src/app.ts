@@ -29,6 +29,31 @@ export function parseTrustProxy(val: string | undefined): boolean | number | str
   return val;
 }
 
+/**
+ * Resolves the approved set of origins for Cross-Origin Resource Sharing (CORS).
+ * Always includes the configured FRONTEND_URL.
+ * In non-production environments (development & test), also includes local development ports (3000 and 3001).
+ */
+export function getAllowedOrigins(frontendUrl = env.FRONTEND_URL, nodeEnv = env.NODE_ENV): Set<string> {
+  const origins = new Set<string>();
+
+  if (frontendUrl) {
+    frontendUrl.split(',').forEach((url) => {
+      const trimmed = url.trim();
+      if (trimmed) origins.add(trimmed);
+    });
+  }
+
+  if (nodeEnv !== 'production') {
+    origins.add('http://localhost:3000');
+    origins.add('http://localhost:3001');
+    origins.add('http://127.0.0.1:3000');
+    origins.add('http://127.0.0.1:3001');
+  }
+
+  return origins;
+}
+
 export function createApp(trustProxyOverride?: boolean | number | string): Express {
   const app = express();
 
@@ -38,15 +63,29 @@ export function createApp(trustProxyOverride?: boolean | number | string): Expre
   app.set('trust proxy', trustProxySetting as any);
 
   // Security headers & CORS
+  const allowedOrigins = getAllowedOrigins();
+
+  const corsOptions: cors.CorsOptions = {
+    origin: (requestOrigin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, or same-origin)
+      if (!requestOrigin) {
+        return callback(null, true);
+      }
+      if (allowedOrigins.has(requestOrigin)) {
+        return callback(null, true);
+      }
+      // Deny unapproved origins by omitting Access-Control-Allow-Origin header
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-request-id'],
+    optionsSuccessStatus: 204,
+  };
+
   app.use(helmet());
-  app.use(
-    cors({
-      origin: env.FRONTEND_URL,
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-request-id'],
-    })
-  );
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
 
   // Body parsing
   app.use(express.json({ limit: '10mb' }));

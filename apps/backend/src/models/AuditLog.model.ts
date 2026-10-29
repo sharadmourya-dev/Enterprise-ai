@@ -95,3 +95,25 @@ const AuditCounterSchema = new Schema<IAuditCounterEntity>({
 });
 
 export const AuditCounterModel = mongoose.model<IAuditCounterEntity>('AuditCounter', AuditCounterSchema);
+
+// Shared authoritative audit chain head for multi-process ACID transactions
+export interface IAuditChainHeadEntity extends Document {
+  _id: any;
+  sequenceNumber: number;
+  lastHash: string;
+  updatedAt: Date;
+  createdAt: Date;
+}
+
+const AuditChainHeadSchema = new Schema<IAuditChainHeadEntity>(
+  {
+    _id: { type: String, required: true },
+    sequenceNumber: { type: Number, required: true, default: 0 },
+    lastHash: { type: String, required: true, default: 'GENESIS_HASH_INITIAL_LOG' },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+export const AuditChainHeadModel = mongoose.model<IAuditChainHeadEntity>('AuditChainHead', AuditChainHeadSchema);

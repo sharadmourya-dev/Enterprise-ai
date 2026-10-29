@@ -16,8 +16,10 @@ import {
 import { UserModel, IUserDocument } from '../models/User.model.js';
 import { SessionModel } from '../models/Session.model.js';
 import { env } from '../config/env.js';
-import { BadRequestError, UnauthorizedError, ConflictError } from '../utils/errors.js';
+import { BadRequestError, UnauthorizedError, ConflictError, ServiceUnavailableError } from '../utils/errors.js';
 import { AuditService } from './audit.service.js';
+import { MailService } from './mail.service.js';
+import { logger } from '../utils/logger.js';
 
 const SALT_ROUNDS = 12;
 
@@ -517,19 +519,53 @@ export class AuthService {
     user.passwordResetExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
     await user.save();
 
-    await AuditService.log({
-      userId: user._id.toString(),
-      action: AuditAction.AUTH_PASSWORD_RESET_REQUEST,
-      resourceType: AuditResourceType.USER,
-      resourceId: user._id.toString(),
-      ipAddress: clientMeta?.ip,
-      userAgent: clientMeta?.userAgent,
-      status: 'success',
-      details: { email: user.email },
-    });
+    const resetUrl = MailService.buildResetUrl(rawResetToken);
 
-    // Note: No outbound email provider is configured in this deployment environment.
-    // In accordance with security requirements, the token is not leaked to logs or API responses.
+    try {
+      await MailService.sendPasswordResetEmail({
+        to: user.email,
+        resetUrl,
+        expiresInMinutes: 15,
+      });
+
+      await AuditService.log({
+        userId: user._id.toString(),
+        action: AuditAction.AUTH_PASSWORD_RESET_REQUEST,
+        resourceType: AuditResourceType.USER,
+        resourceId: user._id.toString(),
+        ipAddress: clientMeta?.ip,
+        userAgent: clientMeta?.userAgent,
+        status: 'success',
+        details: { email: user.email },
+      });
+    } catch (mailError: any) {
+      // Security Failure Handling:
+      // 1. Immediately revoke the token in the database to prevent uncontrolled valid reset tokens
+      user.passwordResetTokenHash = null;
+      user.passwordResetExpiresAt = null;
+      await user.save();
+
+      // 2. Log audit event failure without leaking credentials, tokens, or URL
+      await AuditService.log({
+        userId: user._id.toString(),
+        action: AuditAction.AUTH_PASSWORD_RESET_REQUEST,
+        resourceType: AuditResourceType.USER,
+        resourceId: user._id.toString(),
+        ipAddress: clientMeta?.ip,
+        userAgent: clientMeta?.userAgent,
+        status: 'error',
+        details: { email: user.email, reason: 'smtp_delivery_failed' },
+      });
+
+      logger.error('Password reset email dispatch failed', {
+        userId: user._id.toString(),
+        error: mailError?.message,
+      });
+
+      // 3. Fail closed: throw generic 503 ServiceUnavailableError to prevent fake success responses
+      throw new ServiceUnavailableError('Unable to process password reset request at this time. Please try again later.');
+    }
+
     return {
       message: 'If an account with that email address exists, password reset instructions have been sent.',
     };
