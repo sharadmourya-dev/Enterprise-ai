@@ -69,7 +69,7 @@ jobs:
         run: docker build -f apps/frontend/Dockerfile --build-arg NEXT_PUBLIC_API_URL=http://localhost:5000/api/v1 -t enterprise-ai-frontend:ci .
 
       - name: Scan backend container image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: 'enterprise-ai-backend:ci'
           format: 'table'
@@ -79,7 +79,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Scan frontend container image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: 'enterprise-ai-frontend:ci'
           format: 'table'
